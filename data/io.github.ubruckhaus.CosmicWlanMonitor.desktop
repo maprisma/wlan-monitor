@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=WLAN Monitor
+Comment=Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details
+Type=Application
+Exec=cosmic-wlan-monitor
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;WLAN;Wi-Fi;WiFi;Network;Devices;FRITZ!Box;
+Icon=io.github.ubruckhaus.CosmicWlanMonitor-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-HostWaylandDisplay=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10
