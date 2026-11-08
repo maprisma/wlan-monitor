@@ -13,9 +13,9 @@
 // GNOME extension and the Omarchy widget.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::LazyLock;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use cosmic::app::{Core, Task};
@@ -30,7 +30,8 @@ use cosmic::widget::{
     Id, autosize, button, column, container, divider, icon, mouse_area, row, scrollable, secure_input, space, svg,
     text, text_input, toggler,
 };
-use cosmic::{Element, theme};
+use cosmic::{ApplicationExt, Element, theme};
+use maprisma_wlan_monitor::{APP_NAME, CLOSE_WINDOW, WINDOW_BUS, WindowControl, script_path};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -51,7 +52,32 @@ const CLIPBOARD_LIMIT: usize = 262144;
 const FLASH: Duration = Duration::from_millis(1500);
 
 fn main() -> cosmic::iced::Result {
-    cosmic::applet::run::<Monitor>(())
+    if !std::env::args().any(|arg| arg == "--window") {
+        return cosmic::applet::run::<Monitor>(false);
+    }
+    let runtime = tokio::runtime::Runtime::new().expect("D-Bus runtime");
+    let connection = runtime.block_on(async {
+        let connection = zbus::connection::Builder::session()?
+            .serve_at("/Window", WindowControl)?.build().await?;
+        connection.request_name_with_flags(WINDOW_BUS, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await?;
+        Ok::<_, zbus::Error>(connection)
+    });
+    let _connection = match connection {
+        Ok(connection) => connection,
+        Err(zbus::Error::NameTaken) => return Ok(()),
+        Err(error) => {
+            eprintln!("Window D-Bus: {error}");
+            std::process::exit(1);
+        }
+    };
+    cosmic::app::run::<Monitor>(
+        cosmic::app::Settings::default()
+            .size(cosmic::iced::Size::new(POPUP_WIDTH, POPUP_MAX_HEIGHT))
+            .resizable(Some(8.0))
+            .transparent(false)
+            .is_daemon(false),
+        true,
+    )
 }
 
 // ------------------------------------------------------------------------- texts and values
@@ -558,6 +584,7 @@ struct MapRow {
 #[derive(Default)]
 struct Monitor {
     core: Core,
+    window_mode: bool,
     popup: Option<window::Id>,
     rectangle: Rectangle,
     tracker: Option<RectangleTracker<u32>>,
@@ -596,6 +623,7 @@ enum Message {
     Rectangle(RectangleUpdate<u32>),
     Pulse,
     Tick,
+    WindowTick,
     Rescan,
     SetTrusted(bool),
     Alerts(bool),
@@ -630,6 +658,16 @@ enum Message {
 }
 
 impl Monitor {
+    fn popup_content(&self) -> Element<'_, Message> {
+        let body = scrollable(container(self.panel()).padding([12, 16]))
+            .height(if self.window_mode { Length::Fill } else { Length::Shrink });
+        if self.window_mode {
+            container(body).width(Length::Fill).height(Length::Fill).into()
+        } else {
+            column![container(body).max_height(POPUP_MAX_HEIGHT)].width(Length::Fixed(POPUP_WIDTH)).into()
+        }
+    }
+
     fn active(&self) -> bool {
         b(&self.stats, "active")
     }
@@ -1904,7 +1942,7 @@ impl Monitor {
 
 impl cosmic::Application for Monitor {
     type Executor = cosmic::SingleThreadExecutor;
-    type Flags = ();
+    type Flags = bool;
     type Message = Message;
     const APP_ID: &'static str = APP_ID;
 
@@ -1916,8 +1954,13 @@ impl cosmic::Application for Monitor {
         &mut self.core
     }
 
-    fn init(core: Core, _flags: ()) -> (Self, Task<Message>) {
-        (Self { core, ..Default::default() }, Task::none())
+    fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
+        let mut app = Self { core, window_mode, ..Default::default() };
+        let task = if window_mode {
+            app.set_header_title(APP_NAME.into());
+            app.set_window_title(APP_NAME.into(), app.core.main_window_id().unwrap())
+        } else { Task::none() };
+        (app, task)
     }
 
     fn on_close_requested(&self, id: window::Id) -> Option<Message> {
@@ -1926,13 +1969,18 @@ impl cosmic::Application for Monitor {
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![
-            rectangle_tracker_subscription(0).map(|update| Message::Rectangle(update.1)),
             Subscription::run_with("wlan-monitor-collector", |_| {
                 stream::channel(8, |mut output| async move {
                     run_collector(&mut output).await;
                 })
             }),
         ];
+        if !self.window_mode {
+            subscriptions.push(rectangle_tracker_subscription(0).map(|update| Message::Rectangle(update.1)));
+        }
+        if self.window_mode {
+            subscriptions.push(cosmic::iced::time::every(Duration::from_millis(250)).map(|_| Message::WindowTick));
+        }
         if self.scanning() {
             subscriptions.push(cosmic::iced::time::every(Duration::from_millis(650)).map(|_| Message::Pulse));
         }
@@ -1946,7 +1994,7 @@ impl cosmic::Application for Monitor {
         match message {
             Message::Ready(commands) => {
                 self.commands = Some(commands);
-                if self.popup.is_some() {
+                if self.window_mode || self.popup.is_some() {
                     self.send("open");
                 }
             }
@@ -1965,18 +2013,23 @@ impl cosmic::Application for Monitor {
                 self.rescan_pending = false;
             }
             Message::Pulse => self.pulse_dim = !self.pulse_dim,
+            Message::WindowTick => {
+                if CLOSE_WINDOW.load(Ordering::Relaxed) { return cosmic::iced::exit(); }
+            }
             Message::Tick => self.flash.retain(|_, at| at.elapsed() < FLASH),
             Message::Rectangle(update) => match update {
                 RectangleUpdate::Rectangle(r) => self.rectangle = r.1,
                 RectangleUpdate::Init(tracker) => self.tracker = Some(tracker),
             },
             Message::CloseRequested(id) => {
+                if self.window_mode { return cosmic::iced::exit(); }
                 if self.popup == Some(id) {
                     self.popup = None;
                     self.popup_closed();
                 }
             }
             Message::TogglePopup => {
+                if self.window_mode { return Task::none(); }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
                     return destroy_popup(popup);
@@ -2099,7 +2152,11 @@ impl cosmic::Application for Monitor {
                 }
             }
             Message::OpenWifiSettings => {
-                spawn_detached(&["cosmic-settings", "wireless"]);
+                if self.window_mode {
+                    spawn_detached(&["systemsettings", "kcm_networkmanagement"]);
+                } else {
+                    spawn_detached(&["cosmic-settings", "wireless"]);
+                }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
                     return destroy_popup(popup);
@@ -2165,6 +2222,7 @@ impl cosmic::Application for Monitor {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        if self.window_mode { return self.popup_content(); }
         let horizontal = matches!(self.core.applet.anchor, PanelAnchor::Top | PanelAnchor::Bottom);
         let padding = self.core.applet.suggested_padding(true).0;
         let button = button::custom(self.panel_content())
@@ -2181,39 +2239,16 @@ impl cosmic::Application for Monitor {
     }
 
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
-        let body = scrollable(container(self.panel()).padding([12, 16])).height(Length::Shrink);
-        let content = column![container(body).max_height(POPUP_MAX_HEIGHT)].width(Length::Fixed(POPUP_WIDTH));
-        self.core.applet.popup_container(content).into()
+        if self.window_mode { return self.popup_content(); }
+        self.core.applet.popup_container(self.popup_content()).into()
     }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {
-        Some(cosmic::applet::style())
+        if self.window_mode { None } else { Some(cosmic::applet::style()) }
     }
 }
 
 // ------------------------------------------------------------------------- processes
-
-// Next to the binary (installed: ../share/maprisma-wlan-monitor/scripts), or in
-// the data home; WLAN_MONITOR_SCRIPTS wins (development).
-fn script_path(name: &str) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = std::env::var_os("WLAN_MONITOR_SCRIPTS") {
-        dirs.push(dir.into());
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(bin) = exe.parent()
-    {
-        dirs.push(bin.join("../share/maprisma-wlan-monitor/scripts"));
-    }
-    let data_home = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
-    if let Some(data) = data_home {
-        dirs.push(data.join("maprisma-wlan-monitor/scripts"));
-    }
-    dirs.push("/usr/share/maprisma-wlan-monitor/scripts".into());
-    dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
-}
 
 // Streams the collector's lines and passes the app's commands to its stdin
 // (one per line, in order); starts it again RESTART_DELAY after it exits.

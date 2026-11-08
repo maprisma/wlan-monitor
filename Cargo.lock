@@ -3221,6 +3221,7 @@ dependencies = [
  "libcosmic",
  "serde_json",
  "tokio",
+ "zbus",
 ]
 
 [[package]]

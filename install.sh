@@ -13,10 +13,50 @@ bin="$HOME/.local/bin"
 
 cargo build --release
 install -Dm755 target/release/maprisma-wlan-monitor "$bin/maprisma-wlan-monitor"
+install -Dm755 target/release/maprisma-wlan-monitor-tray "$bin/maprisma-wlan-monitor-tray"
 install -Dm644 scripts/wlan-monitor.py "$data/maprisma-wlan-monitor/scripts/wlan-monitor.py"
 install -Dm644 "data/icons/$id-symbolic.svg" "$data/icons/hicolor/scalable/apps/$id-symbolic.svg"
 # The panel starts applets without ~/.local/bin in PATH: the full path.
 install -d "$data/applications"
-sed "s|^Exec=.*|Exec=$bin/maprisma-wlan-monitor|" "data/$id.desktop" > "$data/applications/$id.desktop"
+# Quote one Exec argument, then escape the desktop-entry value layer.
+desktop_arg() {
+    local v=$1
+    v=${v//\\/\\\\}
+    v=${v//\"/\\\"}
+    v=${v//\`/\\\`}
+    v=${v//\$/\\\$}
+    v="\"$v\""
+    v=${v//\\/\\\\}
+    v=${v//\%/%%}
+    printf '%s' "$v"
+}
+app_exec=$(desktop_arg "$bin/maprisma-wlan-monitor")
+tray_exec=$(desktop_arg "$bin/maprisma-wlan-monitor-tray")
+# Keep the existing COSMIC metadata and default invocation.
+while IFS= read -r line; do
+    if [[ $line == Exec=* ]]; then printf 'Exec=%s\n' "$app_exec"; else printf '%s\n' "$line"; fi
+done < "data/$id.desktop" > "$data/applications/$id.desktop"
+cat > "$data/applications/$id.Window.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Maprisma WLAN Monitor
+Comment=Who is on your Wi-Fi
+Exec=$app_exec --window
+Icon=$id-symbolic
+Terminal=false
+NoDisplay=false
+Categories=Network;Monitor;
+EOF
+autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+install -d "$autostart"
+cat > "$autostart/$id.Tray.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Maprisma WLAN Monitor
+Exec=$tray_exec
+Icon=$id-symbolic
+Terminal=false
+OnlyShowIn=KDE;
+EOF
 gtk-update-icon-cache -q -t "$data/icons/hicolor" 2>/dev/null || true
 echo "Installed. Add “Maprisma WLAN Monitor” in COSMIC Settings › Desktop › Panel › Applets."

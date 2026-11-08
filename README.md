@@ -77,3 +77,31 @@ env -u DISPLAY -u WAYLAND_DISPLAY python3 -m unittest discover -s tests
 ```
 
 The collector's tests (120); they use fixtures and never scan a real network.
+
+## KDE Plasma
+
+On KDE Plasma 6.8 (Wayland), run `./install.sh` and launch **Maprisma WLAN Monitor**
+from the application launcher, or run `~/.local/bin/maprisma-wlan-monitor --window`.
+The resizable libcosmic window contains the same UI as the COSMIC popup, with the
+same collector, settings, commands and refresh subscriptions. Its settings button
+opens KDE's network settings. Only one window runs per session.
+
+The installer also installs `~/.local/bin/maprisma-wlan-monitor-tray` and a
+KDE-only autostart entry in `${XDG_CONFIG_HOME:-~/.config}/autostart/` (active on
+next login). Run the tray binary manually to start it immediately. Left click
+opens or closes the window; the menu offers **Open Maprisma WLAN Monitor** and
+**Quit tray**. Quitting the tray leaves an open window running. The tray reconnects
+when Plasma's StatusNotifierWatcher restarts, and only one tray runs per session.
+Its tooltip refreshes connection, signal and VPN status every ten seconds using
+only the existing collector's read helpers, without starting discovery or FRITZ!Box
+polling. The radar icon uses the installed symbolic icon.
+
+Running `maprisma-wlan-monitor` without arguments still starts the COSMIC applet.
+The shared `scripts/` files are unchanged.
+
+Rust validation:
+
+```sh
+cargo test
+cargo build --release --offline
+```
