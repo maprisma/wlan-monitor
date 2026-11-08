@@ -1,5 +1,5 @@
 [package]
-name = "cosmic-wlan-monitor"
+name = "maprisma-wlan-monitor"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"

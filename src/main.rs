@@ -35,13 +35,13 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-const APP_ID: &str = "io.github.ubruckhaus.CosmicWlanMonitor";
+const APP_ID: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor";
 static AUTOSIZE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-autosize"));
 static SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-search"));
 static RENAME_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-rename"));
 static FRITZ_USER_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-user"));
 static FRITZ_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-password"));
-const RADAR: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicWlanMonitor-symbolic.svg");
+const RADAR: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
 
 const RESTART_DELAY: Duration = Duration::from_secs(5); // before a collector that exited starts again
 const POPUP_WIDTH: f32 = 440.0;
@@ -1130,7 +1130,7 @@ impl Monitor {
         let color = active.then(|| if self.vpn().is_some() { BLUE } else { GREEN });
         let mut hero = row![
             radar(32.0, color, if active { 1.0 } else { 0.6 }),
-            column![text::title4("WLAN Monitor"), dim(meta)].spacing(2),
+            column![text::title4("Maprisma WLAN Monitor"), dim(meta)].spacing(2),
             space::horizontal().width(Length::Fill),
         ]
         .spacing(12)
@@ -2193,7 +2193,7 @@ impl cosmic::Application for Monitor {
 
 // ------------------------------------------------------------------------- processes
 
-// Next to the binary (installed: ../share/cosmic-wlan-monitor/scripts), or in
+// Next to the binary (installed: ../share/maprisma-wlan-monitor/scripts), or in
 // the data home; WLAN_MONITOR_SCRIPTS wins (development).
 fn script_path(name: &str) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -2203,15 +2203,15 @@ fn script_path(name: &str) -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(bin) = exe.parent()
     {
-        dirs.push(bin.join("../share/cosmic-wlan-monitor/scripts"));
+        dirs.push(bin.join("../share/maprisma-wlan-monitor/scripts"));
     }
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
     if let Some(data) = data_home {
-        dirs.push(data.join("cosmic-wlan-monitor/scripts"));
+        dirs.push(data.join("maprisma-wlan-monitor/scripts"));
     }
-    dirs.push("/usr/share/cosmic-wlan-monitor/scripts".into());
+    dirs.push("/usr/share/maprisma-wlan-monitor/scripts".into());
     dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 

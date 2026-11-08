@@ -1,4 +1,4 @@
-# WLAN Monitor for COSMIC
+# Maprisma WLAN Monitor for COSMIC
 
 See who is on your Wi-Fi from the COSMIC panel, in plain words. A native libcosmic panel applet, ported from
 [WLAN Monitor for GNOME](https://github.com/uBruckhaus/gnome-wlan-monitor) (itself the port of the Omarchy

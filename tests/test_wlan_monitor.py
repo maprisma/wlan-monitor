@@ -720,7 +720,7 @@ class NotifyTests(unittest.TestCase):
                 mock.patch.object(wlan_monitor, "run_cmd") as run:
             wlan_monitor.notify_new_devices('<img src="http://x/y.png">Home\r\n', ["<b>A</b>", "B & C", "D", "E"])
         argv = run.call_args[0][0]
-        self.assertEqual(argv[:6], ["notify-send", "-a", "WLAN Monitor", "-i", "network-wireless", "--"])
+        self.assertEqual(argv[:6], ["notify-send", "-a", "Maprisma WLAN Monitor", "-i", "network-wireless", "--"])
         for text in argv[6:]:
             self.assertFalse(set(text) & set("<>&\r\n"))
         self.assertTrue(argv[6].startswith("4 new devices on "))

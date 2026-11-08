@@ -1496,7 +1496,7 @@ def notify_new_devices(ssid, names, lang="en"):
     body = ", ".join(shown) + (more_text.format(n=more) if more > 0 else "")
     net = clean(ssid, 40) or your_net
     title = one.format(net=net) if len(names) == 1 else many.format(n=len(names), net=net)
-    run_cmd(["notify-send", "-a", "WLAN Monitor", "-i", "network-wireless", "--", title, clean(body, 200)], timeout=2)
+    run_cmd(["notify-send", "-a", "Maprisma WLAN Monitor", "-i", "network-wireless", "--", title, clean(body, 200)], timeout=2)
 
 
 # --- Device Discovery & Merging -----------------------------------------------
