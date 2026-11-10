@@ -1,6 +1,20 @@
 [Desktop Entry]
 Name=Maprisma WLAN Monitor
+Name[de]=Maprisma WLAN-Monitor
+Name[fr]=Moniteur Wi-Fi Maprisma
+Name[es]=Monitor Wi-Fi Maprisma
+Name[it]=Monitor Wi-Fi Maprisma
+Name[pt]=Monitor Wi-Fi Maprisma
+Name[nl]=Maprisma-wifimonitor
+Name[pl]=Monitor Wi-Fi Maprisma
 Comment=Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details
+Comment[de]=Wer in deinem WLAN ist: Geräte, Namen, Hinweise auf neue Geräte und FRITZ!Box-Mesh-Details
+Comment[fr]=Qui est sur votre Wi-Fi : appareils, noms, alertes de nouveaux appareils et détails mesh FRITZ!Box
+Comment[es]=Quién está en tu Wi-Fi: dispositivos, nombres, avisos de nuevos dispositivos y detalles de la red mesh FRITZ!Box
+Comment[it]=Chi è sul tuo Wi-Fi: dispositivi, nomi, avvisi sui nuovi dispositivi e dettagli mesh FRITZ!Box
+Comment[pt]=Quem está no teu Wi-Fi: dispositivos, nomes, alertas de novos dispositivos e detalhes mesh FRITZ!Box
+Comment[nl]=Wie zit er op je wifi: apparaten, namen, meldingen over nieuwe apparaten en FRITZ!Box-meshdetails
+Comment[pl]=Kto jest w Twoim Wi-Fi: urządzenia, nazwy, powiadomienia o nowych urządzeniach i szczegóły mesh FRITZ!Box
 Type=Application
 Exec=maprisma-wlan-monitor
 Terminal=false

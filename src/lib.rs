@@ -32,3 +32,5 @@ pub fn script_path(name: &str) -> Option<PathBuf> {
     dirs.push("/usr/share/maprisma-wlan-monitor/scripts".into());
     dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
+
+pub mod i18n;

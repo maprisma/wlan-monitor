@@ -1,0 +1,16 @@
+{
+  "Checking connection…": "Verbinding controleren…",
+  "Collector not installed": "Gegevensverzamelaar niet geïnstalleerd",
+  "Connected": "Verbonden",
+  "Could not save the language setting.": "De taalinstelling kon niet worden opgeslagen.",
+  "Devices on {0}": "Apparaten op {0}",
+  "Quit tray": "Systeemvakpictogram afsluiten",
+  "Since connecting: {0} down, {1} up": "Sinds verbinden: {0} ontvangen, {1} verzonden",
+  "Status unavailable": "Status niet beschikbaar",
+  "VPN: {0}": "VPN: {0}",
+  "active": "actief",
+  "the network": "het netwerk",
+  "{0} signal": "Signaal: {0}",
+  "Maprisma WLAN Monitor": "Maprisma-wifimonitor",
+  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Wie zit er op je wifi: apparaten, namen, meldingen over nieuwe apparaten en FRITZ!Box-meshdetails"
+}

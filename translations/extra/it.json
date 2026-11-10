@@ -1,0 +1,16 @@
+{
+  "Checking connection…": "Verifica della connessione…",
+  "Collector not installed": "Raccoglitore non installato",
+  "Connected": "Connesso",
+  "Could not save the language setting.": "Impossibile salvare la lingua.",
+  "Devices on {0}": "Dispositivi su {0}",
+  "Quit tray": "Chiudi l’icona nell’area di notifica",
+  "Since connecting: {0} down, {1} up": "Dalla connessione: {0} scaricati, {1} caricati",
+  "Status unavailable": "Stato non disponibile",
+  "VPN: {0}": "VPN: {0}",
+  "active": "attiva",
+  "the network": "la rete",
+  "{0} signal": "Segnale: {0}",
+  "Maprisma WLAN Monitor": "Monitor Wi-Fi Maprisma",
+  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Chi è sul tuo Wi-Fi: dispositivi, nomi, avvisi sui nuovi dispositivi e dettagli mesh FRITZ!Box"
+}

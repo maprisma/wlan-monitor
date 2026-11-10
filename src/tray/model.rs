@@ -1,3 +1,4 @@
+use maprisma_wlan_monitor::i18n::{self, tr, trf};
 use maprisma_wlan_monitor::APP_NAME;
 use serde_json::Value;
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -5,6 +6,7 @@ pub enum Action {
     Open,
     Quit,
     Activate,
+    Language(u8),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
@@ -38,39 +40,45 @@ pub fn menu() -> Item {
     };
     let mut root = item(0, String::new(), None);
     root.children = vec![
-        item(1, format!("Open {APP_NAME}"), Some(Action::Open)),
-        item(2, "Quit tray".into(), Some(Action::Quit)),
+        item(1, trf("Open {0}", &[tr(APP_NAME).into()]), Some(Action::Open)),
+        item(2, tr("Quit tray").into(), Some(Action::Quit)),
     ];
+    let current = i18n::setting();
+    let mut languages = item(3, tr("Language").into(), None);
+    languages.children = i18n::choices().into_iter().enumerate().map(|(index, (code, label))| {
+        item(10 + index as i32, if current == code { format!("✓ {label}") } else { label }, Some(Action::Language(index as u8)))
+    }).collect();
+    root.children.push(languages);
     root
 }
 pub fn tooltip(data: &Value) -> String {
     if data["active"].as_bool() != Some(true) {
-        return "Disconnected".into();
+        return tr("Not connected").into();
     }
     let mut parts = vec![
         data["ssid"]
             .as_str()
             .filter(|s| !s.is_empty())
             .or_else(|| data["iface"].as_str())
-            .unwrap_or("Connected")
+            .unwrap_or(tr("Connected"))
             .to_string(),
     ];
     if let Some(q) = data["quality"].as_f64().filter(|q| q.is_finite()) {
         let word = if q >= 70.0 {
-            "Excellent"
+            tr("Excellent")
         } else if q >= 50.0 {
-            "Good"
+            tr("Good")
         } else if q >= 30.0 {
-            "Fair"
+            tr("Fair")
         } else {
-            "Weak"
+            tr("Weak")
         };
-        parts.push(format!("{word} signal"));
+        parts.push(trf("{0} signal", &[word.into()]));
     }
     if let Some(vpn) = data["vpn"].as_object() {
-        parts.push(format!(
-            "VPN: {}",
-            vpn.get("name").and_then(Value::as_str).unwrap_or("active")
+        parts.push(trf(
+            "VPN: {0}", &[
+            vpn.get("name").and_then(Value::as_str).unwrap_or(tr("active")).into()]
         ));
     }
     parts.join(" · ")
@@ -82,8 +90,8 @@ mod tests {
     #[test]
     fn menu_actions() {
         let m = menu();
-        assert_eq!(m.children.len(), 2);
-        assert_eq!(m.find(1).unwrap().label, "Open Maprisma WLAN Monitor");
+        assert_eq!(m.children.len(), 3);
+        assert_eq!(m.find(1).unwrap().label, trf("Open {0}", &[tr(APP_NAME).into()]));
         assert_eq!(m.activate(1), Some(Action::Open));
         assert_eq!(m.activate(2), Some(Action::Quit));
         assert_eq!(m.activate(0), None);
@@ -91,26 +99,26 @@ mod tests {
     }
     #[test]
     fn connection_tooltips() {
-        assert_eq!(tooltip(&Value::Null), "Disconnected");
+        assert_eq!(tooltip(&Value::Null), tr("Not connected"));
         assert_eq!(tooltip(&json!({"active":true,"iface":"eth0"})), "eth0");
         for (q, word) in [
-            (0, "Weak"),
-            (29, "Weak"),
-            (30, "Fair"),
-            (49, "Fair"),
-            (50, "Good"),
-            (69, "Good"),
-            (70, "Excellent"),
-            (100, "Excellent"),
+            (0, tr("Weak")),
+            (29, tr("Weak")),
+            (30, tr("Fair")),
+            (49, tr("Fair")),
+            (50, tr("Good")),
+            (69, tr("Good")),
+            (70, tr("Excellent")),
+            (100, tr("Excellent")),
         ] {
             assert_eq!(
                 tooltip(&json!({"active":true,"ssid":"Home","quality":q})),
-                format!("Home · {word} signal")
+                format!("Home · {}", trf("{0} signal", &[word.into()]))
             );
         }
         assert_eq!(
             tooltip(&json!({"active":true,"ssid":"Home","vpn":{"name":"WireGuard"}})),
-            "Home · VPN: WireGuard"
+            format!("Home · {}", trf("VPN: {0}", &["WireGuard".into()]))
         );
     }
 }

@@ -1,3 +1,4 @@
+use maprisma_wlan_monitor::i18n::{self, tr};
 mod model;
 use maprisma_wlan_monitor::{APP_NAME, ICON, WINDOW_BUS, script_path};
 use model::Action;
@@ -186,7 +187,7 @@ impl Tray {
     }
     #[zbus(property)]
     fn title(&self) -> &str {
-        APP_NAME
+        tr(APP_NAME)
     }
     #[zbus(property)]
     async fn status(&self) -> &str {
@@ -229,7 +230,7 @@ impl Tray {
         (
             ICON.into(),
             vec![],
-            APP_NAME.into(),
+            tr(APP_NAME).into(),
             self.state.lock().await.tooltip(),
         )
     }
@@ -258,7 +259,7 @@ impl Tray {
 // Monitor or run --once: the tray must not start discovery or FRITZ!Box polling.
 async fn read_status() -> String {
     let Some(script) = script_path("wlan-monitor.py") else {
-        return "Collector not installed".into();
+        return tr("Collector not installed").into();
     };
     let code = r#"import importlib.util,json,sys
 spec=importlib.util.spec_from_file_location('wlan',sys.argv[1])
@@ -280,8 +281,8 @@ print(json.dumps(d))
     match tokio::time::timeout(Duration::from_secs(8), command.output()).await {
         Ok(Ok(output)) if output.status.success() => serde_json::from_slice(&output.stdout)
             .map(|v| model::tooltip(&v))
-            .unwrap_or_else(|_| "Status unavailable".into()),
-        _ => "Status unavailable".into(),
+            .unwrap_or_else(|_| tr("Status unavailable").into()),
+        _ => tr("Status unavailable").into(),
     }
 }
 async fn window_action(
@@ -309,7 +310,7 @@ async fn window_action(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial = State {
-        tooltip: "Checking connection…".into(),
+        tooltip: tr("Checking connection…").into(),
         menu: model::menu(),
         revision: 1,
     };
@@ -399,6 +400,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::select! {
             Some(tooltip) = status_rx.recv() => {
                 let mut s = state.lock().await;
+                let menu = model::menu();
+                if s.menu != menu {
+                    s.menu = menu; s.revision += 1;
+                    Menu::layout_updated(&SignalEmitter::new(&connection, "/MenuBar")?, s.revision, 0).await?;
+                }
                 if s.tooltip != tooltip {
                     s.tooltip = tooltip;
                     drop(s);
@@ -407,6 +413,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(action) = rx.recv() => {
                 match action {
+                    Action::Language(index) => {
+                        if let Some((code, _)) = i18n::choices().get(index as usize) {
+                            let mut s = state.lock().await;
+                            if i18n::save_language(code).is_err() {
+                                s.tooltip = tr("Could not save the language setting.").into();
+                            }
+                            s.menu = model::menu(); s.revision += 1;
+                            Menu::layout_updated(&SignalEmitter::new(&connection, "/MenuBar")?, s.revision, 0).await?;
+                            Tray::new_tool_tip(&SignalEmitter::new(&connection, "/StatusNotifierItem")?).await?;
+                        }
+                    }
                     Action::Quit => return Ok(()),
                     Action::Open | Action::Activate => {
                         if let Err(error) = window_action(&connection, action == Action::Activate).await {
@@ -432,7 +449,7 @@ mod tests {
             "(ia{sv}av)"
         );
         assert!(layout(&menu, 0, &[]).2.is_empty());
-        assert_eq!(layout(&menu, 1, &[]).2.len(), 2);
+        assert_eq!(layout(&menu, 1, &[]).2.len(), 3);
         let props = properties(menu.find(1).unwrap(), &["label".into()]);
         assert_eq!(props.len(), 1);
     }

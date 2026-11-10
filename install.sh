@@ -39,8 +39,7 @@ done < "data/$id.desktop" > "$data/applications/$id.desktop"
 cat > "$data/applications/$id.Window.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Maprisma WLAN Monitor
-Comment=Who is on your Wi-Fi
+$(sed -n '/^Name/p; /^Comment/p' "data/$id.desktop")
 Exec=$app_exec --window
 Icon=$id-symbolic
 Terminal=false
@@ -52,7 +51,7 @@ install -d "$autostart"
 cat > "$autostart/$id.Tray.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Maprisma WLAN Monitor
+$(sed -n '/^Name/p; /^Comment/p' "data/$id.desktop")
 Exec=$tray_exec
 Icon=$id-symbolic
 Terminal=false

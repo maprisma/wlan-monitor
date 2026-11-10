@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Bundle checked-in catalogs; optionally import an original I18n.js read-only."""
+import argparse
+import json
+import re
+from pathlib import Path
+
+root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--import-original', type=Path, metavar='I18n.js')
+args = parser.parse_args()
+if args.import_original:
+    source = args.import_original.read_text()
+    source = source.split('var STRINGS = ', 1)[1].split('\nvar MORE_PLUGINS', 1)[0].strip()
+    source = re.sub(r'(?m)^  (en|de|fr|es|it|pt|nl|pl):', r'  "\1":', source)
+    original = json.loads(source)
+    plurals = {}
+    for code, table in original.items():
+        catalog = {}
+        plurals[code] = {}
+        for key, english in original['en'].items():
+            translated = table[key]
+            if isinstance(english, list):
+                for index, text in enumerate(english):
+                    catalog[text] = translated[min(index, len(translated) - 1)]
+                plurals[code][english[-1]] = translated
+            else:
+                catalog[english] = translated
+        (root / f'translations/{code}.json').write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n')
+    (root / 'translations/plurals.json').write_text(json.dumps(plurals, ensure_ascii=False, indent=2) + '\n')
+out = {}
+for code in 'en de fr es it pt nl pl'.split():
+    table = json.loads((root / f'translations/{code}.json').read_text())
+    table.update(json.loads((root / f'translations/extra/{code}.json').read_text()))
+    out[code] = table
+(root / 'translations/bundled.json').write_text(json.dumps(out, ensure_ascii=False, indent=2) + '\n')

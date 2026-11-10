@@ -1,3 +1,4 @@
+use maprisma_wlan_monitor::i18n::{self, tr, trf};
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
 // signal-quality line underneath. It pulses while the subnet is being scanned,
@@ -100,13 +101,13 @@ const BLUE: Color = Color::from_rgb(0x35 as f32 / 255.0, 0x84 as f32 / 255.0, 0x
 
 fn signal_word(quality: f64) -> &'static str {
     if quality >= 70.0 {
-        "Excellent"
+        tr("Excellent")
     } else if quality >= 50.0 {
-        "Good"
+        tr("Good")
     } else if quality >= 30.0 {
-        "Fair"
+        tr("Fair")
     } else {
-        "Weak"
+        tr("Weak")
     }
 }
 
@@ -190,49 +191,49 @@ fn kind_icon(kind: &str) -> &'static str {
 
 fn kind_label(kind: &str) -> &'static str {
     match kind {
-        "router" => "Router",
-        "computer" => "Computer",
-        "laptop" => "Laptop",
-        "phone" => "Phone",
-        "tablet" => "Tablet",
-        "watch" => "Watch",
-        "tv" => "TV",
-        "speaker" => "Speaker",
-        "printer" => "Printer",
-        "console" => "Game console",
-        "camera" => "Camera",
-        "light" => "Lighting",
-        "nas" => "Storage / server",
-        "appliance" => "Appliance",
-        "smarthome" => "Smart-home device",
-        _ => "Device",
+        "router" => tr("Router"),
+        "computer" => tr("Computer"),
+        "laptop" => tr("Laptop"),
+        "phone" => tr("Phone"),
+        "tablet" => tr("Tablet"),
+        "watch" => tr("Watch"),
+        "tv" => tr("TV"),
+        "speaker" => tr("Speaker"),
+        "printer" => tr("Printer"),
+        "console" => tr("Game console"),
+        "camera" => tr("Camera"),
+        "light" => tr("Lighting"),
+        "nas" => tr("Storage / server"),
+        "appliance" => tr("Appliance"),
+        "smarthome" => tr("Smart-home device"),
+        _ => tr("Device"),
     }
 }
 
 fn device_kind_label(dev: &Value) -> &'static str {
-    if s(dev, "kind") == "router" && !b(dev, "is_gateway") { "Repeater / access point" } else { kind_label(s(dev, "kind")) }
+    if s(dev, "kind") == "router" && !b(dev, "is_gateway") { tr("Repeater / access point") } else { kind_label(s(dev, "kind")) }
 }
 
 // Group id → (title, icon).
 fn group_info(id: &str) -> (&'static str, &'static str) {
     match id {
-        "favourites" => ("Favourites", "starred-symbolic"),
+        "favourites" => (tr("Favourites"), "starred-symbolic"),
         "apple" => ("Apple", "phone-apple-iphone-symbolic"),
         "android" => ("Android", "phone-symbolic"),
-        "mobile" => ("Phones & tablets", "tablet-symbolic"),
-        "computers" => ("Computers", "computer-symbolic"),
-        "media" => ("TV & audio", "tv-symbolic"),
-        "smarthome" => ("Smart home", "user-home-symbolic"),
-        "office" => ("Printers & storage", "printer-symbolic"),
-        "network" => ("Network & mesh", "network-workgroup-symbolic"),
-        "none" => ("Not reported by the FRITZ!Box", "dialog-question-symbolic"),
+        "mobile" => (tr("Phones & tablets"), "tablet-symbolic"),
+        "computers" => (tr("Computers"), "computer-symbolic"),
+        "media" => (tr("TV & audio"), "tv-symbolic"),
+        "smarthome" => (tr("Smart home"), "user-home-symbolic"),
+        "office" => (tr("Printers & storage"), "printer-symbolic"),
+        "network" => (tr("Network & mesh"), "network-workgroup-symbolic"),
+        "none" => (tr("Not reported by the FRITZ!Box"), "dialog-question-symbolic"),
         "gsix" => ("6 GHz", "network-wireless-symbolic"),
         "gfive" => ("5 GHz", "network-wireless-symbolic"),
         "gtwo" => ("2.4 GHz", "network-wireless-symbolic"),
-        "glan" => ("LAN (cable)", "network-wired-symbolic"),
-        "gother" => ("Band not reported", "dialog-question-symbolic"),
-        "gsleep" => ("Sleeping", "weather-clear-night-symbolic"),
-        _ => ("Other devices", "dialog-question-symbolic"),
+        "glan" => (tr("LAN (cable)"), "network-wired-symbolic"),
+        "gother" => (tr("Band not reported"), "dialog-question-symbolic"),
+        "gsleep" => (tr("Sleeping"), "weather-clear-night-symbolic"),
+        _ => (tr("Other devices"), "dialog-question-symbolic"),
     }
 }
 
@@ -273,11 +274,11 @@ fn band_group(band: &str) -> &'static str {
 
 fn view_short(mode: &str) -> &'static str {
     match mode {
-        "platform" => "By platform",
-        "type" => "By type",
-        "band" => "By band",
-        "ap" => "By access point",
-        _ => "No groups",
+        "platform" => tr("By platform"),
+        "type" => tr("By type"),
+        "band" => tr("By band"),
+        "ap" => tr("By access point"),
+        _ => tr("No groups"),
     }
 }
 
@@ -309,48 +310,47 @@ fn format_rate(rate: Option<f64>) -> String {
 fn ago_text(dev: &Value) -> String {
     match num(dev, "seen_min") {
         None => String::new(),
-        Some(m) if m < 1.0 => "just now".into(),
-        Some(m) if m < 60.0 => format!("{} min ago", m.round()),
-        Some(m) => format!("{} h ago", (m / 60.0).floor()),
+        Some(m) if m < 1.0 => tr("just now").into(),
+        Some(m) if m < 60.0 => trf("{0} min ago", &[m.round().to_string()]),
+        Some(m) => trf("{0} h ago", &[(m / 60.0).floor().to_string()]),
     }
 }
 
 fn status_word(dev: &Value) -> String {
     if b(dev, "is_gateway") {
-        return "router".into();
+        return tr("router").into();
     }
     if b(dev, "is_self") {
-        return "this PC".into();
+        return tr("this PC").into();
     }
     if b(dev, "online") {
-        return "online".into();
+        return tr("online").into();
     }
     if s(dev, "state") == "idle" {
-        return "idle".into();
+        return tr("idle").into();
     }
     let ago = ago_text(dev);
-    if ago.is_empty() { "sleeping".into() } else { format!("sleeping · {ago}") }
+    if ago.is_empty() { tr("sleeping").into() } else { format!("{} · {ago}", tr("sleeping")) }
 }
 
 fn status_explain(dev: &Value) -> String {
     if b(dev, "is_gateway") {
-        return "Your router: it connects all devices here to each other and to the internet.".into();
+        return tr("Your router: it connects all devices here to each other and to the internet.").into();
     }
     if b(dev, "is_self") {
-        return "This computer.".into();
+        return tr("This computer.").into();
     }
     if b(dev, "online") {
-        return "Online: the device answered just now.".into();
+        return tr("Online: the device answered just now.").into();
     }
     if s(dev, "state") == "idle" {
-        return "Idle: connected recently but quiet for a while. On a network you have not trusted, the monitor does \
-                not ask devices directly, so it cannot tell whether they are asleep."
+        return tr("Idle: connected recently but quiet for a while. On a network you have not trusted, the monitor does not ask devices directly, so it cannot tell whether they are asleep.")
             .into();
     }
     let ago = ago_text(dev);
     format!(
-        "Sleeping: not answering right now. Phones and tablets do this to save battery and still count as connected. {}",
-        if ago.is_empty() { "Known from your router's address list.".to_string() } else { format!("Last seen {ago}.") }
+        "{} {}", tr("Sleeping: not answering right now. Phones and tablets do this to save battery and still count as connected."),
+        if ago.is_empty() { tr("Known from your router's address list.").to_string() } else { trf("Last seen {0}.", &[ago]) }
     )
 }
 
@@ -362,40 +362,33 @@ fn device_key(dev: &Value) -> String {
 fn fritz_message(code: &str, args: &[Value]) -> String {
     let arg = |i: usize| args.get(i).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).unwrap_or_default();
     match code {
-        "fzConnecting" => "Connecting to the FRITZ!Box…".into(),
-        "fzPaused" => "Paused while the VPN blocks the home network.".into(),
-        "fzMethod" => "The FRITZ!Box asked for an unsupported login method.".into(),
-        "fzCert" => "The FRITZ!Box certificate changed. Connect again to trust the new one.".into(),
-        "fzNetworkChanged" => "The network changed before the login was sent. Connect again.".into(),
-        "fzAppAccess" => "The FRITZ!Box does not accept app access. Turn on “Allow access for applications” under \
-                          Home Network › Network › Network Settings."
+        "fzConnecting" => tr("Connecting to the FRITZ!Box…").into(),
+        "fzPaused" => tr("Paused while the VPN blocks the home network.").into(),
+        "fzMethod" => tr("The FRITZ!Box asked for an unsupported login method.").into(),
+        "fzCert" => tr("The FRITZ!Box certificate changed. Connect again to trust the new one.").into(),
+        "fzNetworkChanged" => tr("The network changed before the login was sent. Connect again.").into(),
+        "fzAppAccess" => tr("The FRITZ!Box does not accept app access. Turn on “Allow access for applications” under Home Network › Network › Network Settings.")
             .into(),
-        "fzNoAnswer" => "The FRITZ!Box did not answer.".into(),
-        "fzNotStored" => "The login could not be stored in the settings folder.".into(),
+        "fzNoAnswer" => tr("The FRITZ!Box did not answer.").into(),
+        "fzNotStored" => tr("The login could not be stored in the settings folder.").into(),
         "fzNotDeleted" => {
-            "The saved login could not be deleted yet. WLAN Monitor keeps trying and does not use it.".into()
+            tr("The saved login could not be deleted yet. WLAN Monitor keeps trying and does not use it.").into()
         }
-        "fzNotSent" => "The request could not be passed to the collector that talks to the FRITZ!Box.".into(),
-        "fzWrongLogin" => "Wrong user name or password.".into(),
+        "fzNotSent" => tr("The request could not be passed to the collector that talks to the FRITZ!Box.").into(),
+        "fzWrongLogin" => tr("Wrong user name or password.").into(),
         "fzNoRight" => {
-            "This FRITZ!Box user may not read the home network. Give it the right “FRITZ!Box settings”.".into()
+            tr("This FRITZ!Box user may not read the home network. Give it the right “FRITZ!Box settings”.").into()
         }
-        "fzRefused" => format!("The FRITZ!Box refused the request (error {}).", arg(0)),
-        "fzNoMesh" => "The FRITZ!Box sent no mesh list.".into(),
-        "fzMeshUnreadable" => "The FRITZ!Box mesh list could not be read.".into(),
-        "fzMeshEmpty" => "The FRITZ!Box mesh list was empty.".into(),
+        "fzRefused" => trf("The FRITZ!Box refused the request (error {0}).", &[arg(0)]),
+        "fzNoMesh" => tr("The FRITZ!Box sent no mesh list.").into(),
+        "fzMeshUnreadable" => tr("The FRITZ!Box mesh list could not be read.").into(),
+        "fzMeshEmpty" => tr("The FRITZ!Box mesh list was empty.").into(),
         _ => String::new(),
     }
 }
 
-const FRITZ_EXPLAIN: &str = "Shows which access point, band and speed every device uses, and the names from your \
-    FRITZ!Box. Use a FRITZ!Box user with the right “FRITZ!Box settings” (System › FRITZ!Box Users). The password is \
-    stored only on this PC (readable by you alone) and used only with this FRITZ!Box.";
-const FRITZ_HELP: &str = "• There is no fixed default user name.\n• FRITZ!OS before 7.24: the FRITZ!Box asks only for \
-    a password. Leave the user name empty.\n• FRITZ!OS 7.24 and newer: if you never created a user, an update \
-    created one named “fritz” plus four random digits (for example fritz1234). Log in at http://fritz.box and look \
-    under System › FRITZ!Box Users.\n• Password: unless you changed it, it is printed on the label on the bottom or \
-    back of the FRITZ!Box (4 to 6 lowercase letters followed by 4 digits).";
+const FRITZ_EXPLAIN: &str = "Shows which access point, band and speed every device uses, and the names from your FRITZ!Box. Use a FRITZ!Box user with the right “FRITZ!Box settings” (System › FRITZ!Box Users). The password is stored only on this PC (readable by you alone) and used only with this FRITZ!Box.";
+const FRITZ_HELP: &str = "• There is no fixed default user name.\n• FRITZ!OS before 7.24: the FRITZ!Box asks only for a password. Leave the user name empty.\n• FRITZ!OS 7.24 and newer: if you never created a user, an update created one named “fritz” plus four random digits (for example fritz1234). Log in at http://fritz.box and look under System › FRITZ!Box Users.\n• Password: unless you changed it, it is printed on the label on the bottom or back of the FRITZ!Box (4 to 6 lowercase letters followed by 4 digits).";
 
 // ------------------------------------------------------------------------- widgets
 
@@ -602,6 +595,9 @@ struct Monitor {
     show_hidden: bool,
     filter: String,
     chooser: bool,
+    language_open: bool,
+    language_error: bool,
+    last_language: String,
     fritz_form_open: bool,
     fritz_form_net: String,
     fritz_form_net_id: String,
@@ -634,6 +630,8 @@ enum Message {
     SetViewMode(String),
     FoldAll(bool, Vec<String>),
     ToggleChooser,
+    ToggleLanguage,
+    Language(String),
     ToggleDevice(String),
     StartRename(String),
     RenameDraft(String),
@@ -866,10 +864,10 @@ impl Monitor {
         let Some(m) = dev.get("mesh").filter(|m| !s(m, "via").is_empty()) else { return String::new() };
         // With a single access point "via …" says nothing new; the band is enough.
         if self.aps().len() <= 1 {
-            return if s(m, "band") == "LAN" { "cable".into() } else { s(m, "band").into() };
+            return if s(m, "band") == "LAN" { tr("cable").into() } else { s(m, "band").into() };
         }
         let band = s(m, "band");
-        format!("via {}{}", s(m, "via"), if band.is_empty() { String::new() } else { format!(" · {band}") })
+        format!("{}{}", trf("via {0}", &[s(m, "via").into()]), if band.is_empty() { String::new() } else { format!(" · {band}") })
     }
 
     fn mesh_detail(&self, dev: &Value) -> String {
@@ -881,20 +879,20 @@ impl Monitor {
         }
         let mut parts = Vec::new();
         if !band.is_empty() {
-            parts.push(if band == "LAN" { "cable (LAN)".to_string() } else { band.to_string() });
+            parts.push(if band == "LAN" { tr("cable (LAN)").to_string() } else { band.to_string() });
         }
         if rate > 0.0 {
             parts.push(format!("{rate} Mbit/s"));
         }
         if let Some(dbm) = num(m, "signal_dbm") {
-            parts.push(format!("signal {} ({dbm} dBm)", signal_word(signal_quality(Some(dbm))).to_lowercase()));
+            parts.push(trf("signal {0} ({1} dBm)", &[signal_word(signal_quality(Some(dbm))).to_lowercase(), dbm.to_string()]));
         }
         parts.join(" · ")
     }
 
     fn right_label(&self, dev: &Value) -> String {
         let word = status_word(dev);
-        if word == "online" || word == "router" { s(dev, "ip").into() } else { format!("{word} · {}", s(dev, "ip")) }
+        if b(dev, "online") || b(dev, "is_gateway") { s(dev, "ip").into() } else { format!("{word} · {}", s(dev, "ip")) }
     }
 
     fn subtitle(&self, dev: &Value) -> String {
@@ -906,7 +904,7 @@ impl Monitor {
         }
         let model = s(dev, "model");
         if b(dev, "is_gateway") && !model.is_empty() && !name.contains(model) {
-            parts.push(format!("model {model}"));
+            parts.push(trf("model {0}", &[model.into()]));
         }
         // The band is already the group heading when grouping by band.
         let mesh = self.mesh_text(dev);
@@ -956,14 +954,14 @@ impl Monitor {
             for ap in self.aps() {
                 let mac = s(ap, "mac").to_string();
                 let detail = if s(ap, "role") == "master" {
-                    "main router".to_string()
+                    tr("main router").to_string()
                 } else if !s(ap, "via").is_empty() {
                     let band = s(ap, "band");
-                    format!("via {}{}", s(ap, "via"), if band.is_empty() { String::new() } else { format!(" {band}") })
+                    format!("{}{}", trf("via {0}", &[s(ap, "via").into()]), if band.is_empty() { String::new() } else { format!(" {band}") })
                 } else {
-                    "repeater".to_string()
+                    tr("repeater").to_string()
                 };
-                let name = if s(ap, "name").is_empty() { "Access point".to_string() } else { s(ap, "name").to_string() };
+                let name = if s(ap, "name").is_empty() { tr("Access point").to_string() } else { s(ap, "name").to_string() };
                 order.push(mac.clone());
                 buckets.insert(mac, (name, "network-wireless-symbolic", detail, Vec::new()));
             }
@@ -1163,19 +1161,19 @@ impl Monitor {
             }
             m
         } else {
-            "Not connected".into()
+            tr("Not connected").into()
         };
         let color = active.then(|| if self.vpn().is_some() { BLUE } else { GREEN });
         let mut hero = row![
             radar(32.0, color, if active { 1.0 } else { 0.6 }),
-            column![text::title4("Maprisma WLAN Monitor"), dim(meta)].spacing(2),
+            column![text::title4(tr("Maprisma WLAN Monitor")), dim(meta)].spacing(2),
             space::horizontal().width(Length::Fill),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
         if active {
             hero = hero.push(
-                container(text::caption(format!("{} online", n(&self.stats, "online_count"))))
+                container(text::caption(trf("{0} online", &[n(&self.stats, "online_count").to_string()])))
                     .padding([2, 10])
                     .class(track(10.0)),
             );
@@ -1186,10 +1184,10 @@ impl Monitor {
     fn tabs(&self) -> Element<'_, Message> {
         let map = self.map_page();
         row![
-            choice("Devices", !map)
+            choice(tr("Devices"), !map)
                 .leading_icon(icon::from_name("view-list-symbolic").size(16).handle())
                 .on_press_maybe(map.then(|| Message::ToggleGroup("mappage".into()))),
-            choice("Network map", map)
+            choice(tr("Network map"), map)
                 .leading_icon(icon::from_name("network-workgroup-symbolic").size(16).handle())
                 .on_press_maybe((!map).then(|| Message::ToggleGroup("mappage".into()))),
         ]
@@ -1202,25 +1200,24 @@ impl Monitor {
         // A VPN blocks the home network: explain why everything looks idle, and how to fix it.
         if self.lan_blocked() {
             let vpn = self.vpn().unwrap_or(&Value::Null);
-            let name = if s(vpn, "name").is_empty() { "A VPN" } else { s(vpn, "name") };
+            let name = if s(vpn, "name").is_empty() { tr("A VPN") } else { s(vpn, "name") };
             let command = self.vpn_command();
             let hint = if command.is_empty() {
-                "Allow local network (LAN) access in your VPN settings.".to_string()
+                tr("Allow local network (LAN) access in your VPN settings.").to_string()
             } else {
-                format!("Allow it with: {command}.")
+                trf("Allow it with: {0}", &[command.clone()])
             };
             let mut block = column![
-                row![small_icon("network-vpn-symbolic", 16), text::heading(format!("{name} is on and blocks your home network"))]
+                row![small_icon("network-vpn-symbolic", 16), text::heading(trf("{0} is on and blocks your home network", &[name.into()]))]
                     .spacing(8)
                     .align_y(Alignment::Center),
                 dim(format!(
-                    "Devices can't be reached, so they show as idle or sleeping, and the router page, names from the \
-                     network and FRITZ!Box details are unavailable. {hint} Or disconnect the VPN."
+                    "{} {hint} {}", tr("Devices can't be reached, so they show as idle or sleeping, and the router page, names from the network and FRITZ!Box details are unavailable."), tr("Or disconnect the VPN.")
                 )),
             ]
             .spacing(6);
             if !command.is_empty() {
-                let label = if self.flashing("vpn") { "Copied".to_string() } else { format!("Copy command: {command}") };
+                let label = if self.flashing("vpn") { tr("Copied").to_string() } else { trf("Copy command: {0}", &[command]) };
                 block = block.push(link("edit-copy-symbolic", label, Some(Message::CopyVpnCommand)));
             }
             out.push(container(block).padding(10).width(Length::Fill).class(notice(BLUE)).into());
@@ -1235,7 +1232,7 @@ impl Monitor {
                         row![small_icon("dialog-warning-symbolic", 16), text::heading(fritz_message(code, arr(f, "message_args")))]
                             .spacing(8)
                             .align_y(Alignment::Center),
-                        link("dialog-password-symbolic", "Connect FRITZ!Box again".into(), Some(Message::StartFritzLogin)),
+                        link("dialog-password-symbolic", tr("Connect FRITZ!Box again").into(), Some(Message::StartFritzLogin)),
                     ]
                     .spacing(6),
                 )
@@ -1255,11 +1252,11 @@ impl Monitor {
         let ip = if s(link, "ip").is_empty() { "—" } else { s(link, "ip") };
         let gateway = s(link, "gateway");
         let mut block = column![
-            section("Connection"),
+            section(tr("Connection")),
             row![
-                text::heading(format!("This PC  {ip}")),
+                text::heading(format!("{}  {ip}", tr("This PC"))),
                 space::horizontal().width(Length::Fill),
-                dim(if gateway.is_empty() { String::new() } else { format!("Router  {gateway}") }),
+                dim(if gateway.is_empty() { String::new() } else { format!("{}  {gateway}", tr("Router")) }),
             ]
             .align_y(Alignment::Center),
         ]
@@ -1267,12 +1264,12 @@ impl Monitor {
         if active {
             let cidr = if !s(link, "cidr").is_empty() { s(link, "cidr") } else { ip };
             let iface = if s(link, "iface").is_empty() { "?" } else { s(link, "iface") };
-            let mut parts = vec![format!("Address {cidr} on {iface}")];
+            let mut parts = vec![trf("Address {0} on {1}", &[cidr.into(), iface.into()])];
             if !s(link, "mac").is_empty() {
-                parts.push(format!("MAC {}", s(link, "mac")));
+                parts.push(trf("MAC {0}", &[s(link, "mac").into()]));
             }
             if !s(link, "domain").is_empty() {
-                parts.push(format!("Local domain {}", s(link, "domain")));
+                parts.push(trf("Local domain {0}", &[s(link, "domain").into()]));
             }
             block = block.push(dim(parts.join("  ·  ")));
         }
@@ -1283,17 +1280,17 @@ impl Monitor {
                 tip.push(format!("{dbm} dBm"));
             }
             if !shown(link, "channel").is_empty() {
-                tip.push(format!("channel {}", shown(link, "channel")));
+                tip.push(trf("channel {0}", &[shown(link, "channel")]));
             }
             if n(link, "tx_mbps") > 0.0 {
                 let rx = shown(link, "rx_mbps");
-                tip.push(format!("link {}{} Mbit/s", shown(link, "tx_mbps"), if rx.is_empty() { String::new() } else { format!(" / {rx}") }));
+                tip.push(trf("link {0} Mbit/s", &[format!("{}{}", shown(link, "tx_mbps"), if rx.is_empty() { String::new() } else { format!(" / {rx}") })]));
             }
             if quality < 30.0 {
-                tip.push("move closer to the router or remove obstacles".into());
+                tip.push(tr("Weak? Move closer to the router or remove obstacles between you.").into());
             }
             block = block.push(meter(
-                format!("Signal  ·  {}", signal_word(quality)),
+                format!("{}  ·  {}", tr("Signal"), signal_word(quality)),
                 format!("{} %", quality.round()),
                 fraction,
                 fill(signal_color(fraction), 3.0),
@@ -1302,27 +1299,27 @@ impl Monitor {
         }
         let rate = n(traffic, "rx_rate") + n(traffic, "tx_rate");
         block = block.push(meter(
-            "Traffic now".into(),
+            tr("Traffic now").into(),
             format!("↓ {}  ·  ↑ {}", format_rate(num(traffic, "rx_rate")), format_rate(num(traffic, "tx_rate"))),
             if rate <= 0.0 { 0.0 } else { ((1.0 + rate / 1024.0).log10() / 4.0).min(1.0) },
             neutral_fill(3.0),
-            format!("Since connecting: {} down, {} up", format_bytes(n(traffic, "rx_bytes")), format_bytes(n(traffic, "tx_bytes"))),
+            trf("Since connecting: {0} down, {1} up", &[format_bytes(n(traffic, "rx_bytes")), format_bytes(n(traffic, "tx_bytes"))]),
         ));
         // Always say when a VPN is on, also when it lets the home network through.
         if let Some(vpn) = self.vpn() {
             block = block.push(accent(format!(
-                "{} is on  ·  {}",
-                s(vpn, "name"),
-                if self.lan_blocked() { "blocks your home network" } else { "home network reachable" }
+                "{}  ·  {}",
+                trf("{0} is on", &[s(vpn, "name").into()]),
+                if self.lan_blocked() { tr("blocks your home network") } else { tr("home network reachable") }
             )));
         }
         if active {
             // One summary line; the explanations and the FRITZ!Box login open on click.
-            let mut summary = if self.trusted() { "Your network".to_string() } else { "Not your network (passive)".to_string() };
+            let mut summary = if self.trusted() { tr("Your network").to_string() } else { tr("Not your network (passive)").to_string() };
             let via = s(link, "via");
             if !via.is_empty() {
                 let via = via.strip_prefix("Router (").and_then(|v| v.strip_suffix(')')).unwrap_or(via);
-                summary += &format!("  ·  via {via}");
+                summary += &format!("  ·  {}", trf("via {0}", &[via.into()]));
                 if !s(link, "via_band").is_empty() {
                     summary += &format!(" · {}", s(link, "via_band"));
                 }
@@ -1346,13 +1343,12 @@ impl Monitor {
             if self.info_open() || self.fritz_form_open || state == "error" || state == "connecting" {
                 let mut info = column![dim(if self.trusted() {
                     if self.stats.get("alerts").and_then(Value::as_bool) != Some(false) {
-                        "Your network (trusted): looks for devices every 2 minutes and tells you when a new one joins."
+                        tr("Your network (trusted): looks for devices every 2 minutes and tells you when a new one joins.")
                     } else {
-                        "Your network (trusted): looks for devices every 2 minutes. New-device alerts are off."
+                        tr("Your network (trusted): looks for devices every 2 minutes. New-device alerts are off.")
                     }
                 } else {
-                    "Not marked as your network, so only devices that announce themselves are shown. If this is your \
-                     home network, click Trust to find every device and get alerts about new ones."
+                    tr("Not marked as your network, so only devices that announce themselves are shown. If this is your home network, click Trust to find every device and get alerts about new ones.")
                 })]
                 .spacing(6);
                 if b(fritz, "available") {
@@ -1373,17 +1369,17 @@ impl Monitor {
         if state == "connected" {
             let count = self.aps().len();
             links = links.push(dim(if count == 1 {
-                "FRITZ!Box connected · 1 access point".to_string()
+                tr("FRITZ!Box connected · 1 access point").to_string()
             } else {
-                format!("FRITZ!Box connected · {count} access points")
+                trf("FRITZ!Box connected · {0} access points", &[count.to_string()])
             }));
         }
         if state != "connected" && state != "connecting" && !self.fritz_form_open {
-            let label = if state == "error" && !user.is_empty() { "Connect FRITZ!Box again" } else { "Show mesh details from the FRITZ!Box" };
+            let label = if state == "error" && !user.is_empty() { tr("Connect FRITZ!Box again") } else { tr("Show mesh details from the FRITZ!Box") };
             links = links.push(link("dialog-password-symbolic", label.into(), Some(Message::StartFritzLogin)));
         }
         if !user.is_empty() && !self.fritz_form_open {
-            links = links.push(link("view-conceal-symbolic", "Disconnect".into(), Some(Message::FritzLogout)));
+            links = links.push(link("view-conceal-symbolic", tr("Disconnect").into(), Some(Message::FritzLogout)));
         }
         let mut block = column![links].spacing(6);
         if (state == "error" || state == "connecting") && !s(f, "message").is_empty() {
@@ -1401,31 +1397,31 @@ impl Monitor {
         if self.fritz_form_open {
             // The password goes to the collector over its stdin pipe and is never shown again.
             let mut form = column![
-                dim(FRITZ_EXPLAIN),
-                text_input("User name, e.g. fritz1234", self.fritz_user.as_str())
+                dim(tr(FRITZ_EXPLAIN)),
+                text_input(tr("User name, e.g. fritz1234"), self.fritz_user.as_str())
                     .id(FRITZ_USER_ID.clone())
                     .on_input(|v| Message::FritzUser(v.chars().take(64).collect()))
                     .on_submit(|_| Message::FritzFocusPassword),
                 link(
                     if self.fritz_help_open { "pan-down-symbolic" } else { "pan-end-symbolic" },
-                    "Where do I find user name and password?".into(),
+                    tr("Where do I find user name and password?").into(),
                     Some(Message::FritzHelp)
                 ),
             ]
             .spacing(6);
             if self.fritz_help_open {
-                form = form.push(container(dim(FRITZ_HELP)).padding([0, 0, 0, 12]));
+                form = form.push(container(dim(tr(FRITZ_HELP))).padding([0, 0, 0, 12]));
             }
             form = form.push(
-                secure_input("Password", self.fritz_password.as_str(), Some(Message::FritzPasswordVisible), !self.fritz_password_visible)
+                secure_input(tr("Password"), self.fritz_password.as_str(), Some(Message::FritzPasswordVisible), !self.fritz_password_visible)
                     .id(FRITZ_PASSWORD_ID.clone())
                     .on_input(|v| Message::FritzPassword(v.chars().take(128).collect()))
                     .on_submit(|_| Message::FritzConnect),
             );
             form = form.push(
                 row![
-                    button::suggested("Connect").on_press_maybe((!self.fritz_password.is_empty()).then_some(Message::FritzConnect)),
-                    button::standard("Cancel").on_press(Message::FritzCancel),
+                    button::suggested(tr("Connect")).on_press_maybe((!self.fritz_password.is_empty()).then_some(Message::FritzConnect)),
+                    button::standard(tr("Cancel")).on_press(Message::FritzCancel),
                 ]
                 .spacing(8),
             );
@@ -1456,7 +1452,7 @@ impl Monitor {
         let ids = self.list_fold_ids();
         page = page.push(
             row![
-                text::caption_heading(format!("DEVICES ({total})")).class(theme::Text::Custom(dim_text)).width(Length::Fill),
+                text::caption_heading(trf("Devices ({0})", &[total.to_string()]).to_uppercase()).class(theme::Text::Custom(dim_text)).width(Length::Fill),
                 button::text(view_short(&self.view_mode()))
                     .trailing_icon(icon::from_name("pan-down-symbolic").size(16).handle())
                     .on_press(Message::ToggleChooser),
@@ -1471,13 +1467,13 @@ impl Monitor {
         }
         // New devices since the user last checked (trusted networks only).
         if new_count > 0 {
-            let joined = if new_count == 1 { "1 new device joined".to_string() } else { format!("{new_count} new devices joined") };
+            let joined = if new_count == 1 { tr("1 new device joined").to_string() } else { trf("{0} new devices joined", &[new_count.to_string()]) };
             page = page.push(
                 container(
                     row![
                         small_icon("emblem-important-symbolic", 16),
-                        text::caption(format!("{joined}. Not yours? Change your Wi-Fi password in the router.")).width(Length::Fill),
-                        link("object-select-symbolic", "All known".into(), Some(Message::KnownAll)),
+                        text::caption(format!("{joined}. {}", tr("Not yours? Change your Wi-Fi password in the router."))).width(Length::Fill),
+                        link("object-select-symbolic", tr("All known").into(), Some(Message::KnownAll)),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
@@ -1488,19 +1484,19 @@ impl Monitor {
         }
         if n(&self.stats, "named_count") == 0.0 && self.devices.len() > 1 && new_count == 0 {
             page = page.push(dim(
-                "Tip: click a device to see what it is, give it a name you recognise, pin it to the top or open its web page.",
+                tr("Tip: click a device to see what it is, give it a name you recognise, pin it to the top or open its web page."),
             ));
         }
         if total.saturating_sub(hidden) > 12 || !self.filter.is_empty() {
             page = page.push(
-                text_input("Search devices", self.filter.as_str())
+                text_input(tr("Search devices (/)"), self.filter.as_str())
                     .id(SEARCH_ID.clone())
                     .leading_icon(small_icon("system-search-symbolic", 16))
                     .on_input(|v| Message::Filter(v.chars().take(40).collect())),
             );
         }
         if active && !self.trusted() && total <= 3 {
-            page = page.push(dim("Only a few devices visible. Click Rescan to look for more."));
+            page = page.push(dim(tr("Only a few devices visible. Click Rescan to look for more.")));
         }
 
         let entries = self.list_entries();
@@ -1515,7 +1511,7 @@ impl Monitor {
             });
         }
         if entries.is_empty() && !self.filter.is_empty() {
-            list = list.push(dim(format!("No device matches “{}”.", self.filter)));
+            list = list.push(dim(trf("No device matches “{0}”.", &[self.filter.clone()])));
         }
         page = page.push(container(scrollable(list).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT));
 
@@ -1523,14 +1519,14 @@ impl Monitor {
         if !self.devices.is_empty() {
             footer = footer.push(link(
                 "edit-copy-symbolic",
-                if self.flashing("list") { "Copied".into() } else { "Copy list".into() },
+                if self.flashing("list") { tr("Copied").into() } else { tr("Copy list").into() },
                 Some(Message::CopyList),
             ));
         }
         if hidden > 0 {
             footer = footer.push(link(
                 if self.show_hidden { "view-conceal-symbolic" } else { "view-reveal-symbolic" },
-                if self.show_hidden { format!("Hide {hidden} hidden") } else { format!("Show {hidden} hidden") },
+                if self.show_hidden { trf("Hide {0} hidden", &[hidden.to_string()]) } else { trf("Show {0} hidden", &[hidden.to_string()]) },
                 Some(Message::ToggleHidden),
             ));
         }
@@ -1544,11 +1540,12 @@ impl Monitor {
         };
         let mut count_text = String::new();
         if *has_new {
-            count_text += "NEW  ";
+            count_text += tr("NEW");
+            count_text += "  ";
         }
         count_text += &count.to_string();
         if online != count {
-            count_text += &format!(" · {online} online");
+            count_text += &format!(" · {}", trf("{0} online", &[online.to_string()]));
         }
         let title = if detail.is_empty() { title.clone() } else { format!("{title}  ·  {detail}") };
         let content = row![
@@ -1581,7 +1578,7 @@ impl Monitor {
             block = block.push(
                 row![
                     small_icon(kind_icon(s(dev, "kind")), 18),
-                    text_input(if s(dev, "auto_name").is_empty() { "Device name" } else { s(dev, "auto_name") }, self.edit_draft.as_str())
+                    text_input(if s(dev, "auto_name").is_empty() { tr("Device name") } else { s(dev, "auto_name") }, self.edit_draft.as_str())
                         .id(RENAME_ID.clone())
                         .on_input(|v| Message::RenameDraft(v.chars().take(40).collect()))
                         .on_submit(|_| Message::FinishRename),
@@ -1589,7 +1586,7 @@ impl Monitor {
                 .spacing(8)
                 .align_y(Alignment::Center),
             );
-            block = block.push(container(dim("Enter saves · empty restores the automatic name")).padding([0, 0, 0, 26]));
+            block = block.push(container(dim(tr("Enter saves · Esc cancels · empty restores the automatic name"))).padding([0, 0, 0, 26]));
         } else {
             let mut main = row![small_icon(kind_icon(s(dev, "kind")), 18)].spacing(8).align_y(Alignment::Center);
             let name = s(dev, "name").to_string();
@@ -1600,12 +1597,12 @@ impl Monitor {
             };
             main = main.push(name);
             if b(dev, "new") {
-                main = main.push(accent("NEW"));
+                main = main.push(accent(tr("NEW")));
             }
             if b(dev, "pinned") {
                 main = main.push(small_icon("view-pin-symbolic", 14));
             }
-            let right = if self.flashing(&format!("ip:{key}")) { "copied to clipboard".to_string() } else { self.right_label(dev) };
+            let right = if self.flashing(&format!("ip:{key}")) { tr("copied to clipboard").to_string() } else { self.right_label(dev) };
             main = main.push(if b(dev, "is_gateway") || b(dev, "is_self") { accent(right) } else { dim(right) });
             let mut top = row![
                 button::custom(main)
@@ -1639,14 +1636,14 @@ impl Monitor {
             let vendor = s(dev, "vendor");
             let hostname = s(dev, "hostname");
             for (name, value) in [
-                ("Connected via", if !via.is_empty() && !b(dev, "is_gateway") { via.to_string() } else { String::new() }),
-                ("Connection", self.mesh_detail(dev)),
-                ("Maker", if vendor == "Private MAC" { "unknown (hidden by a private address)".into() } else { vendor.to_string() }),
-                ("Model", s(dev, "model").to_string()),
-                ("Automatic name", if s(dev, "custom_name").is_empty() { String::new() } else { s(dev, "auto_name").to_string() }),
-                ("Network name", if !hostname.is_empty() && hostname != s(dev, "name") { hostname.to_string() } else { String::new() }),
-                ("IP address", s(dev, "ip").to_string()),
-                ("MAC address", s(dev, "mac").to_string()),
+                (tr("Connected via"), if !via.is_empty() && !b(dev, "is_gateway") { via.to_string() } else { String::new() }),
+                (tr("Connection"), self.mesh_detail(dev)),
+                (tr("Maker"), if vendor == "Private MAC" { tr("unknown (hidden by a private address)").into() } else { vendor.to_string() }),
+                (tr("Model"), s(dev, "model").to_string()),
+                (tr("Automatic name"), if s(dev, "custom_name").is_empty() { String::new() } else { s(dev, "auto_name").to_string() }),
+                (tr("Network name"), if !hostname.is_empty() && hostname != s(dev, "name") { hostname.to_string() } else { String::new() }),
+                (tr("IP address"), s(dev, "ip").to_string()),
+                (tr("MAC address"), s(dev, "mac").to_string()),
             ] {
                 if !value.is_empty() {
                     details = details.push(dim(format!("{name}:  {value}")));
@@ -1657,40 +1654,40 @@ impl Monitor {
             let mac = s(dev, "mac").to_string();
             let mut actions = Row::new().spacing(2);
             if can_edit && !editing {
-                actions = actions.push(link("document-edit-symbolic", "Rename".into(), Some(Message::StartRename(key.clone()))));
+                actions = actions.push(link("document-edit-symbolic", tr("Rename").into(), Some(Message::StartRename(key.clone()))));
             }
             if editing {
-                actions = actions.push(link("object-select-symbolic", "Save".into(), Some(Message::FinishRename)));
-                actions = actions.push(link("window-close-symbolic", "Cancel".into(), Some(Message::CancelRename)));
+                actions = actions.push(link("object-select-symbolic", tr("Save").into(), Some(Message::FinishRename)));
+                actions = actions.push(link("window-close-symbolic", tr("Cancel").into(), Some(Message::CancelRename)));
             }
             if editable && !editing {
                 let pinned = b(dev, "pinned");
                 actions = actions.push(link(
                     "view-pin-symbolic",
-                    if pinned { "Unpin".into() } else { "Pin to top".into() },
+                    if pinned { tr("Unpin").into() } else { tr("Pin to top").into() },
                     Some(Message::DeviceCommand("pin", mac.clone(), json!({"on": !pinned}))),
                 ));
                 let hidden = b(dev, "hidden");
                 actions = actions.push(link(
                     if hidden { "view-reveal-symbolic" } else { "view-conceal-symbolic" },
-                    if hidden { "Show".into() } else { "Hide".into() },
+                    if hidden { tr("Show").into() } else { tr("Hide").into() },
                     Some(Message::DeviceCommand("hide", mac.clone(), json!({"on": !hidden}))),
                 ));
             }
             if !web_url.is_empty() && !editing {
-                actions = actions.push(link("web-browser-symbolic", "Open web page".into(), Some(Message::OpenWeb(web_url.to_string()))));
+                actions = actions.push(link("web-browser-symbolic", tr("Open web page").into(), Some(Message::OpenWeb(web_url.to_string()))));
             }
             if b(dev, "new") && !editing {
                 actions = actions.push(link(
                     "object-select-symbolic",
-                    "It's mine".into(),
+                    tr("It's mine").into(),
                     Some(Message::DeviceCommand("known", mac.clone(), json!({"on": true}))),
                 ));
             }
             details = details.push(actions.wrap());
             if !can_edit {
                 details = details.push(dim(
-                    "This device's hardware address is unknown, so it cannot be renamed yet. Try again when it is online.",
+                    tr("This device's hardware address is unknown, so it cannot be renamed yet. Try again when it is online."),
                 ));
             }
             block = block.push(container(details).padding([0, 6, 6, 32]));
@@ -1704,7 +1701,7 @@ impl Monitor {
         let ids = self.map_fold_ids();
         let mut page = column![
             row![
-                dim(if n_devices == 1 { "1 device".to_string() } else { format!("{n_devices} devices") }),
+                dim(if n_devices == 1 { trf("{0} device", &["1".into()]) } else { trf("{0} devices", &[n_devices.to_string()]) }),
                 space::horizontal().width(Length::Fill),
                 button::text(view_short(&self.view_mode()))
                     .trailing_icon(icon::from_name("pan-down-symbolic").size(16).handle())
@@ -1726,13 +1723,13 @@ impl Monitor {
         page = page.push(container(scrollable(tree).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT + 120.0));
         if !self.mesh_active() {
             page = page.push(dim(if b(self.fritz(), "available") {
-                "Connect your FRITZ!Box (Devices page, click the network line) to see the band, speed and signal of every device."
+                tr("Connect your FRITZ!Box (Devices page, click the network line) to see the band, speed and signal of every device.")
             } else {
-                "Band, speed and signal per device are shown for FRITZ!Box routers after an optional login."
+                tr("Band, speed and signal per device are shown for FRITZ!Box routers after an optional login.")
             }));
         }
         page = page.push(dim(
-            "Click a group or repeater to fold it, a device to see its details. The grouping is shared with the Devices page.",
+            tr("Click a group or repeater to fold it, a device to see its details. The grouping is shared with the Devices page."),
         ));
         page.into()
     }
@@ -1741,13 +1738,13 @@ impl Monitor {
         let dev = r.dev.map(|i| &self.devices[i]);
         let (glyph, label, strong, online, message): (&'static str, String, bool, bool, Option<Message>) = match &r.kind {
             MapKind::Internet => {
-                let via = self.vpn().map(|v| format!("  ·  via {}", s(v, "name"))).unwrap_or_default();
-                ("web-browser-symbolic", format!("Internet{via}"), true, true, None)
+                let via = self.vpn().map(|v| format!("  ·  {}", trf("via {0}", &[s(v, "name").into()]))).unwrap_or_default();
+                ("web-browser-symbolic", format!("{}{via}", tr("Internet")), true, true, None)
             }
             MapKind::Ap { id, title } => {
                 let d = dev.unwrap_or(&Value::Null);
                 let model = s(d, "model");
-                let title = if title.is_empty() { "Router".to_string() } else { title.clone() };
+                let title = if title.is_empty() { tr("Router").to_string() } else { title.clone() };
                 let label = if b(d, "is_gateway") && !model.is_empty() { format!("{title}  ·  {model}") } else { title };
                 let message =
                     if b(d, "is_gateway") { r.dev.map(Message::OpenDevice) } else { Some(Message::ToggleGroup(id.clone())) };
@@ -1755,7 +1752,7 @@ impl Monitor {
             }
             MapKind::Group { id, title, icon, count, online } => (
                 icon,
-                format!("{title}  ·  {}", if *count == 1 { "1 device".to_string() } else { format!("{count} devices") }),
+                format!("{title}  ·  {}", if *count == 1 { trf("{0} device", &["1".into()]) } else { trf("{0} devices", &[count.to_string()]) }),
                 true,
                 *online > 0,
                 Some(Message::ToggleGroup(id.clone())),
@@ -1778,7 +1775,7 @@ impl Monitor {
         content = content.push(label);
         if let (MapKind::Device, Some(d)) = (&r.kind, dev) {
             if b(d, "new") {
-                content = content.push(accent("NEW"));
+                content = content.push(accent(tr("NEW")));
             }
             let mesh = d.get("mesh").unwrap_or(&Value::Null);
             let detail = if n(mesh, "rate_mbps") > 0.0 {
@@ -1814,13 +1811,13 @@ impl Monitor {
         let gateway_url = self.gateway().map(|g| s(g, "web_url")).filter(|u| !u.is_empty());
         let mut buttons = Row::new().spacing(6).align_y(Alignment::Center);
         buttons = buttons.push(
-            button::standard("Rescan")
+            button::standard(tr("Rescan"))
                 .leading_icon(icon::from_name("view-refresh-symbolic").size(16).handle())
                 .on_press_maybe((!self.scanning()).then_some(Message::Rescan)),
         );
         if let Some(url) = gateway_url {
             buttons = buttons.push(
-                button::standard("Router")
+                button::standard(tr("Router"))
                     .leading_icon(icon::from_name("network-wireless-symbolic").size(16).handle())
                     .on_press(Message::OpenWeb(url.to_string())),
             );
@@ -1828,7 +1825,7 @@ impl Monitor {
         if self.active() {
             let trusted = self.trusted();
             buttons = buttons.push(
-                button::standard(if trusted { "Untrust" } else { "Trust" })
+                button::standard(if trusted { tr("Untrust") } else { tr("Trust") })
                     .leading_icon(
                         icon::from_name(if trusted { "security-low-symbolic" } else { "security-high-symbolic" }).size(16).handle(),
                     )
@@ -1842,10 +1839,22 @@ impl Monitor {
         if self.active() && self.trusted() {
             footer = footer.push(
                 toggler(self.stats.get("alerts").and_then(Value::as_bool) != Some(false))
-                    .label("New-device alerts".to_string())
+                    .label(tr("New-device alerts").to_string())
                     .on_toggle(Message::Alerts),
             );
         }
+        footer = footer.push(button::text(tr("Language")).on_press(Message::ToggleLanguage));
+        if self.language_open {
+            let current = i18n::setting();
+            let mut languages = Row::new().spacing(4);
+            for (code, label) in i18n::choices() {
+                let selected = current == code;
+                let button = if selected { button::suggested(label) } else { button::text(label) };
+                languages = languages.push(button.on_press(Message::Language(code)));
+            }
+            footer = footer.push(languages.wrap());
+        }
+        if self.language_error { footer = footer.push(dim(tr("Could not save the language setting."))); }
         footer.into()
     }
 
@@ -1877,13 +1886,13 @@ impl Monitor {
             .unwrap_or_default();
         let ssid = s(self.link(), "ssid");
         let mut lines = vec![
-            format!("# Devices on {} ({now})", cell(if ssid.is_empty() { "the network" } else { ssid })),
+            format!("# {} ({now})", trf("Devices on {0}", &[cell(if ssid.is_empty() { tr("the network") } else { ssid })])),
             String::new(),
-            "| Name | Type | Status | IP | Maker | Model | MAC |".into(),
+            format!("| {} | {} | {} | IP | {} | {} | MAC |", tr("Name"), tr("Type"), tr("Status"), tr("Maker"), tr("Model")),
             "| --- | --- | --- | --- | --- | --- | --- |".into(),
         ];
         for dev in self.devices.iter().take(256) {
-            let status = status_word(dev) + if b(dev, "hidden") { " (hidden)" } else { "" };
+            let status = status_word(dev) + &if b(dev, "hidden") { format!(" {}", tr("(hidden)")) } else { String::new() };
             let cells = [s(dev, "name"), kind_label(s(dev, "kind")), &status, s(dev, "ip"), s(dev, "vendor"), s(dev, "model"), s(dev, "mac")];
             lines.push(format!("| {} |", cells.iter().map(|c| cell(c)).collect::<Vec<_>>().join(" | ")));
         }
@@ -1957,8 +1966,8 @@ impl cosmic::Application for Monitor {
     fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
         let mut app = Self { core, window_mode, ..Default::default() };
         let task = if window_mode {
-            app.set_header_title(APP_NAME.into());
-            app.set_window_title(APP_NAME.into(), app.core.main_window_id().unwrap())
+            app.set_header_title(tr(APP_NAME).into());
+            app.set_window_title(tr(APP_NAME).into(), app.core.main_window_id().unwrap())
         } else { Task::none() };
         (app, task)
     }
@@ -1992,19 +2001,39 @@ impl cosmic::Application for Monitor {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::ToggleLanguage => self.language_open = !self.language_open,
+            Message::Language(code) => {
+                self.language_error = i18n::save_language(&code).is_err();
+                self.send_json(json!({"cmd": "lang", "lang": i18n::language()}));
+                if self.window_mode {
+                    self.set_header_title(tr(APP_NAME).into());
+                    return self.set_window_title(tr(APP_NAME).into(), self.core.main_window_id().unwrap());
+                }
+            }
             Message::Ready(commands) => {
                 self.commands = Some(commands);
+                self.send_json(json!({"cmd": "lang", "lang": i18n::language()}));
                 if self.window_mode || self.popup.is_some() {
                     self.send("open");
                 }
             }
             Message::Line(data) => {
+                let language = i18n::language();
+                let language_changed = language != self.last_language;
+                if language_changed {
+                    self.send_json(json!({"cmd": "lang", "lang": language}));
+                    self.last_language = language;
+                }
                 if s(&data, "event") == "scanning" {
                     self.scan_busy = true;
                 } else if data.get("error").is_none() {
                     self.scan_busy = false;
                     self.rescan_pending = false;
                     self.take_snapshot(data);
+                }
+                if language_changed && self.window_mode {
+                    self.set_header_title(tr(APP_NAME).into());
+                    return self.set_window_title(tr(APP_NAME).into(), self.core.main_window_id().unwrap());
                 }
             }
             Message::Exited => {

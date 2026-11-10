@@ -1,0 +1,117 @@
+{
+  "en": {
+    "{0} devices": [
+      "{0} device",
+      "{0} devices"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box connected · 1 access point",
+      "FRITZ!Box connected · {0} access points"
+    ],
+    "{0} new devices joined": [
+      "1 new device joined",
+      "{0} new devices joined"
+    ]
+  },
+  "de": {
+    "{0} devices": [
+      "{0} Gerät",
+      "{0} Geräte"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box verbunden · 1 Zugangspunkt",
+      "FRITZ!Box verbunden · {0} Zugangspunkte"
+    ],
+    "{0} new devices joined": [
+      "1 neues Gerät ist dazugekommen",
+      "{0} neue Geräte sind dazugekommen"
+    ]
+  },
+  "fr": {
+    "{0} devices": [
+      "{0} appareil",
+      "{0} appareils"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box connectée · 1 point d’accès",
+      "FRITZ!Box connectée · {0} points d’accès"
+    ],
+    "{0} new devices joined": [
+      "1 nouvel appareil s’est connecté",
+      "{0} nouveaux appareils se sont connectés"
+    ]
+  },
+  "es": {
+    "{0} devices": [
+      "{0} dispositivo",
+      "{0} dispositivos"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box conectada · 1 punto de acceso",
+      "FRITZ!Box conectada · {0} puntos de acceso"
+    ],
+    "{0} new devices joined": [
+      "Se unió 1 dispositivo nuevo",
+      "Se unieron {0} dispositivos nuevos"
+    ]
+  },
+  "it": {
+    "{0} devices": [
+      "{0} dispositivo",
+      "{0} dispositivi"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box connessa · 1 access point",
+      "FRITZ!Box connessa · {0} access point"
+    ],
+    "{0} new devices joined": [
+      "Si è aggiunto 1 nuovo dispositivo",
+      "Si sono aggiunti {0} nuovi dispositivi"
+    ]
+  },
+  "pt": {
+    "{0} devices": [
+      "{0} dispositivo",
+      "{0} dispositivos"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box conectada · 1 ponto de acesso",
+      "FRITZ!Box conectada · {0} pontos de acesso"
+    ],
+    "{0} new devices joined": [
+      "1 novo dispositivo entrou",
+      "{0} novos dispositivos entraram"
+    ]
+  },
+  "nl": {
+    "{0} devices": [
+      "{0} apparaat",
+      "{0} apparaten"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box verbonden · 1 toegangspunt",
+      "FRITZ!Box verbonden · {0} toegangspunten"
+    ],
+    "{0} new devices joined": [
+      "1 nieuw apparaat is erbij gekomen",
+      "{0} nieuwe apparaten zijn erbij gekomen"
+    ]
+  },
+  "pl": {
+    "{0} devices": [
+      "{0} urządzenie",
+      "{0} urządzenia",
+      "{0} urządzeń"
+    ],
+    "FRITZ!Box connected · {0} access points": [
+      "FRITZ!Box połączony · 1 punkt dostępu",
+      "FRITZ!Box połączony · {0} punkty dostępu",
+      "FRITZ!Box połączony · {0} punktów dostępu"
+    ],
+    "{0} new devices joined": [
+      "Dołączyło 1 nowe urządzenie",
+      "Dołączyły {0} nowe urządzenia",
+      "Dołączyło {0} nowych urządzeń"
+    ]
+  }
+}
