@@ -3216,9 +3216,11 @@ dependencies = [
 
 [[package]]
 name = "maprisma-wlan-monitor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "libc",
  "libcosmic",
+ "png 0.18.1",
  "serde_json",
  "tokio",
  "zbus",

@@ -60,6 +60,39 @@ You can also create a separate FRITZ!Box user with the right "FRITZ!Box settings
 
 Device names, pins and hidden flags are stored per network (router MAC + SSID) in `~/.config/ubruckhaus-wlan-monitor/devices.json` (`0600`). On trusted networks the MAC addresses seen there are remembered too, so new devices can be recognised; on other networks only devices you rename, pin or hide are written. The file is bounded (32 networks, 512 devices each) and read with the same checks as the trust list (no symlinks or other special files, owned by you, at most 8 MiB, which the largest valid store fits in, every field validated, times only within a sane range). Each change re-reads the file under a shared lock, applies only that change and writes it atomically, and the collector reads it again when it changed, so it never undoes a change made by the Omarchy widget or another collector on the same account (without the lock within 2 s, a change is shown but not written).
 
+## F12: a screenshot with a note
+
+While the popup (or the KDE window) is open, **F12** (without Ctrl, Shift, Alt or Super) saves a picture of it,
+for telling what is wrong with it:
+
+- **Only on F12.** Nothing is captured at any other time, and only this app's own popup or window: libcosmic draws
+  it once more into memory (iced's `window::screenshot`) and the app encodes that as PNG. No screen capture tool
+  or portal runs, nothing else on the screen is in it, and nothing is uploaded or sent anywhere. The picture shows
+  what the popup shows, so device names and addresses on screen are in it.
+- **Where:** `~/Pictures/Maprisma WLAN Monitor/maprisma-wlan-monitor-<date>-<time>.png` (the pictures folder from
+  `~/.config/user-dirs.dirs` when it is set there; that file is only read when it is a small regular file). The
+  popup then names the file and asks **What is wrong? (optional)**; **Enter** or **Done** saves the text next to
+  the picture as a `.txt` with the same name (at most 4000 characters; no text, no file), **Esc** skips it, and
+  closing the popup or window keeps what was typed.
+- **Private files:** the folder is made `0700` when missing and only used when it is a real folder (not a link) of
+  yours that no one else can write to; pictures and notes are new `0600` files created inside that folder,
+  never written through a link or over an existing file or note (`-2`, `-3` … are added instead), and a file that
+  cannot be written completely is removed again.
+- **Off:** switch **F12 saves a screenshot** off at the bottom of the popup (stored as `"screenshot_key": false`
+  in `~/.config/ubruckhaus-wlan-monitor/maprisma-settings.json`, beside the language).
+
+The KDE tray icon's menu is drawn by Plasma and has no F12.
+
+## Corners
+
+**Corners** at the bottom of the popup or window: *Like the desktop (… px)* (the default: the COSMIC theme's corner
+radius, 16, 8 or 2 px by COSMIC Settings › Appearance; on KDE the theme libcosmic loads there, normally 16 px),
+*Slightly rounded (6 px)*, *Rounded (12 px)* or *Square*. Cards and the popup's frame take the full radius,
+buttons, search and rename fields, the notice boxes and the open device's row at most 8 px, small parts (meter
+tracks, fills, signal bars) at most 4 px; the "N online" pill stays round, or square in *Square*. The panel icon
+and the KDE window's own frame keep the desktop's corners. Stored as `"corners"` in `maprisma-settings.json`;
+*Like the desktop* removes it again, and files without these keys stay valid.
+
 ## Install
 
 Needs `python3`, Rust (cargo) and COSMIC. `avahi-browse` and `iw` are used when installed.

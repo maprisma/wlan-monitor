@@ -65,6 +65,17 @@ pub fn save_language(code: &str) -> std::io::Result<()> {
             "language",
         ));
     }
+    write_pref("language", Some(code.into()))
+}
+/// One interface setting from maprisma-settings.json (language, screenshot_key, corners).
+pub fn read_pref(key: &str) -> Option<Value> {
+    std::fs::read(settings_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v.get(key).cloned())
+}
+/// Sets (Some) or removes (None) one setting; the other keys stay as they are.
+pub fn write_pref(key: &str, setting: Option<Value>) -> std::io::Result<()> {
     let path = settings_path();
     std::fs::create_dir_all(path.parent().unwrap())?;
     let mut value = std::fs::read(&path)
@@ -72,7 +83,12 @@ pub fn save_language(code: &str) -> std::io::Result<()> {
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .filter(Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
-    value["language"] = code.into();
+    match setting {
+        Some(setting) => value[key] = setting,
+        None => {
+            value.as_object_mut().map(|o| o.remove(key));
+        }
+    }
     let temp = path.with_extension("json.tmp");
     std::fs::write(&temp, serde_json::to_vec_pretty(&value)?)?;
     std::fs::rename(temp, path)

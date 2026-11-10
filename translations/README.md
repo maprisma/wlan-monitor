@@ -5,7 +5,7 @@ Its symbolic keys are replaced with the exact English strings. English plural
 forms become individual English keys; `plurals.json` retains every original
 plural form, including Polish one/few/many. The original repository is read only.
 Each base catalog contains 221 English keys. Port-specific text is in
-`extra/<code>.json`: 14 additional keys per language, with no base overrides.
+`extra/<code>.json`: 27 additional keys per language, with no base overrides.
 
 All assets are compiled with `include_str!`; there are no runtime catalog files
 or downloads. After editing catalogs, run `python3 tools/gen-translations`.

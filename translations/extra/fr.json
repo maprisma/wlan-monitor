@@ -12,5 +12,18 @@
   "the network": "le réseau",
   "{0} signal": "Signal : {0}",
   "Maprisma WLAN Monitor": "Moniteur Wi-Fi Maprisma",
-  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Qui est sur votre Wi-Fi : appareils, noms, alertes de nouveaux appareils et détails mesh FRITZ!Box"
+  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Qui est sur votre Wi-Fi : appareils, noms, alertes de nouveaux appareils et détails mesh FRITZ!Box",
+  "F12 saves a screenshot": "F12 enregistre une capture d'écran",
+  "Screenshot saved": "Capture enregistrée",
+  "Saved as {0}": "Enregistrée sous {0}",
+  "What is wrong? (optional)": "Qu'est-ce qui ne va pas ? (facultatif)",
+  "Done": "Terminé",
+  "The screenshot could not be saved: {0}": "La capture n'a pas pu être enregistrée : {0}",
+  "The note could not be saved: {0}": "La note n'a pas pu être enregistrée : {0}",
+  "Corners": "Coins",
+  "Like the desktop ({0} px)": "Comme le bureau ({0} px)",
+  "Slightly rounded ({0} px)": "Légèrement arrondis ({0} px)",
+  "Rounded ({0} px)": "Arrondis ({0} px)",
+  "Square": "Carrés",
+  "Could not save the setting.": "Le réglage n'a pas pu être enregistré."
 }

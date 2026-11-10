@@ -1,4 +1,5 @@
-use maprisma_wlan_monitor::i18n::{self, tr, trf};
+use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
+use maprisma_wlan_monitor::{corners, shot};
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
 // signal-quality line underneath. It pulses while the subnet is being scanned,
@@ -43,6 +44,9 @@ static SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-search")
 static RENAME_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-rename"));
 static FRITZ_USER_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-user"));
 static FRITZ_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-password"));
+static NOTE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-shot-note"));
+// F12 pictures go to ~/Pictures/<this>/ (the app's name, the same in every language).
+const SHOT_FOLDER: &str = APP_NAME;
 const RADAR: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
 
 const RESTART_DELAY: Duration = Duration::from_secs(5); // before a collector that exited starts again
@@ -414,6 +418,20 @@ fn accent<'a>(content: impl Into<std::borrow::Cow<'a, str>> + 'a) -> Element<'a,
     text::caption(content).class(theme::Text::Custom(accent_text)).into()
 }
 
+// Settings › Corners: small parts (tracks, fills, swatches, signal bars), controls (notice boxes,
+// the open device's row) and round ones (the status pill).
+fn small() -> f32 {
+    corners::now().small
+}
+
+fn control() -> f32 {
+    corners::now().control
+}
+
+fn pill_radius() -> f32 {
+    corners::now().pill
+}
+
 fn fill(color: Color, radius: f32) -> theme::Container<'static> {
     theme::Container::custom(move |_| iced_container::Style {
         background: Some(Background::Color(color)),
@@ -455,7 +473,7 @@ fn notice(color: Color) -> theme::Container<'static> {
         edge.a = 0.5;
         iced_container::Style {
             background: Some(Background::Color(back)),
-            border: Border { radius: 8.0.into(), width: 1.0, color: edge },
+            border: Border { radius: control().into(), width: 1.0, color: edge },
             ..Default::default()
         }
     })
@@ -468,7 +486,7 @@ fn selected_row() -> theme::Container<'static> {
         color.a = 0.06;
         iced_container::Style {
             background: Some(Background::Color(color)),
-            border: Border { radius: 8.0.into(), ..Default::default() },
+            border: Border { radius: control().into(), ..Default::default() },
             ..Default::default()
         }
     })
@@ -484,7 +502,7 @@ fn bar<'a>(fraction: f64, class: theme::Container<'static>, height: f32) -> Elem
     if part < 1000 {
         line = line.push(space::horizontal().width(Length::FillPortion(1000 - part)));
     }
-    container(line).width(Length::Fill).class(track(height / 2.0)).into()
+    container(line).width(Length::Fill).class(track((height / 2.0).min(small()))).into()
 }
 
 // Label left, value right, a bar underneath, an explanation below.
@@ -527,7 +545,7 @@ fn signal_bars<'a>(quality: f64) -> Element<'a, Message> {
     let mut bars = Row::new().spacing(2).align_y(Alignment::End);
     for (index, limit) in [0.0, 30.0, 50.0, 70.0].into_iter().enumerate() {
         let lit = quality > limit || (index == 0 && quality >= 0.0);
-        let class = if lit { fill(signal_color(quality / 100.0), 1.0) } else { track(1.0) };
+        let class = if lit { fill(signal_color(quality / 100.0), small().min(1.0)) } else { track(small().min(1.0)) };
         bars = bars.push(
             container(space::horizontal())
                 .width(Length::Fixed(3.0))
@@ -607,6 +625,13 @@ struct Monitor {
     fritz_password_visible: bool,
     fritz_help_open: bool,
     flash: HashMap<String, std::time::Instant>,
+    // F12: the note's state, whether a capture is on its way, the settings.
+    shot: shot::Phase,
+    capturing: bool,
+    shot_key: bool,
+    corners: String,
+    corners_open: bool,
+    setting_error: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -653,10 +678,100 @@ enum Message {
     FritzConnect,
     FritzCancel,
     FritzHelp,
+    ShotKey(window::Id),
+    Escape,
+    Captured(window::Screenshot),
+    ShotSaved(Result<shot::Saved, String>),
+    NoteInput(String),
+    NoteDone,
+    NoteSaved(Result<(), String>),
+    SetShotKey(bool),
+    ToggleCorners,
+    Corners(String),
+}
+
+// Runs `work` on its own thread (saving must not hold up the popup) and answers with `done`.
+fn off_thread<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+    done: fn(Result<T, String>) -> Message,
+) -> Task<Message> {
+    let (sender, receiver) = cosmic::iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    Task::perform(receiver, move |result| {
+        cosmic::Action::App(done(result.unwrap_or_else(|_| Err("the file could not be written".into()))))
+    })
+}
+
+// Settings › F12 saves a screenshot (on unless switched off) and Corners, from maprisma-settings.json.
+fn shot_key_setting() -> bool {
+    read_pref("screenshot_key").and_then(|v| v.as_bool()).unwrap_or(true)
+}
+
+fn corners_setting() -> String {
+    corners::normalize(read_pref("corners").as_ref().and_then(Value::as_str).unwrap_or("")).to_string()
 }
 
 impl Monitor {
+    // Done, Enter or the popup closing (keep: the note typed so far is saved), Esc (skip).
+    fn finish_note(&mut self, keep: bool) -> Task<Message> {
+        match std::mem::take(&mut self.shot) {
+            shot::Phase::Note { path, text, .. } => {
+                if keep && shot::note_text(&text).is_some() {
+                    // Busy until the note is written, so a new F12 cannot replace it.
+                    self.shot = shot::Phase::Noting;
+                    return off_thread(
+                        move || shot::save_note(&path, SHOT_FOLDER, &text).map(|_| ()).map_err(|e| e.to_string()),
+                        Message::NoteSaved,
+                    );
+                }
+            }
+            shot::Phase::Error(_) => {}
+            other => self.shot = other,
+        }
+        Task::none()
+    }
+
+    // A capture still on its way is dropped with its popup; a typed note is kept (saved).
+    fn shot_popup_closed(&mut self) -> Task<Message> {
+        if std::mem::take(&mut self.capturing) && self.shot == shot::Phase::Busy {
+            self.shot = shot::Phase::Idle;
+        }
+        if matches!(self.shot, shot::Phase::Note { .. }) { self.finish_note(true) } else { Task::none() }
+    }
+
+    // After F12: "Screenshot saved", where, the optional note and Done (or the error and Done).
+    fn shot_overlay(&self) -> Option<Element<'_, Message>> {
+        let body: Element<Message> = match &self.shot {
+            shot::Phase::Note { shown, text: note, .. } => column![
+                text::heading(tr("Screenshot saved")),
+                dim(trf("Saved as {0}", &[shown.clone()])),
+                text_input(tr("What is wrong? (optional)"), note.as_str())
+                    .id(NOTE_ID.clone())
+                    .on_input(Message::NoteInput)
+                    .on_submit(|_| Message::NoteDone),
+                row![space::horizontal().width(Length::Fill), button::suggested(tr("Done")).on_press(Message::NoteDone)],
+            ]
+            .spacing(10)
+            .into(),
+            shot::Phase::Error(reason) => column![
+                text::body(reason.clone()),
+                row![space::horizontal().width(Length::Fill), button::suggested(tr("Done")).on_press(Message::NoteDone)],
+            ]
+            .spacing(10)
+            .into(),
+            _ => return None,
+        };
+        let card = container(body).padding(16).width(Length::Fill).class(theme::Container::Card);
+        let card = container(card).padding(12).width(if self.window_mode { Length::Fill } else { Length::Fixed(POPUP_WIDTH) });
+        Some(card.into())
+    }
+
     fn popup_content(&self) -> Element<'_, Message> {
+        if let Some(overlay) = self.shot_overlay() {
+            return overlay;
+        }
         let body = scrollable(container(self.panel()).padding([12, 16]))
             .height(if self.window_mode { Length::Fill } else { Length::Shrink });
         if self.window_mode {
@@ -1175,7 +1290,7 @@ impl Monitor {
             hero = hero.push(
                 container(text::caption(trf("{0} online", &[n(&self.stats, "online_count").to_string()])))
                     .padding([2, 10])
-                    .class(track(10.0)),
+                    .class(track(pill_radius())),
             );
         }
         hero.into()
@@ -1293,7 +1408,7 @@ impl Monitor {
                 format!("{}  ·  {}", tr("Signal"), signal_word(quality)),
                 format!("{} %", quality.round()),
                 fraction,
-                fill(signal_color(fraction), 3.0),
+                fill(signal_color(fraction), small()),
                 tip.join("  ·  "),
             ));
         }
@@ -1302,7 +1417,7 @@ impl Monitor {
             tr("Traffic now").into(),
             format!("↓ {}  ·  ↑ {}", format_rate(num(traffic, "rx_rate")), format_rate(num(traffic, "tx_rate"))),
             if rate <= 0.0 { 0.0 } else { ((1.0 + rate / 1024.0).log10() / 4.0).min(1.0) },
-            neutral_fill(3.0),
+            neutral_fill(small()),
             trf("Since connecting: {0} down, {1} up", &[format_bytes(n(traffic, "rx_bytes")), format_bytes(n(traffic, "tx_bytes"))]),
         ));
         // Always say when a VPN is on, also when it lets the home network through.
@@ -1855,6 +1970,23 @@ impl Monitor {
             footer = footer.push(languages.wrap());
         }
         if self.language_error { footer = footer.push(dim(tr("Could not save the language setting."))); }
+        footer = footer.push(toggler(self.shot_key).label(tr("F12 saves a screenshot").to_string()).on_toggle(Message::SetShotKey));
+        footer = footer.push(button::text(tr("Corners")).on_press(Message::ToggleCorners));
+        if self.corners_open {
+            let desktop = corners::desktop_radius().round().to_string();
+            let mut choices = Row::new().spacing(4);
+            for (choice, label) in [
+                ("desktop", trf("Like the desktop ({0} px)", &[desktop])),
+                ("slight", trf("Slightly rounded ({0} px)", &["6".into()])),
+                ("rounded", trf("Rounded ({0} px)", &["12".into()])),
+                ("square", tr("Square").to_string()),
+            ] {
+                let button = if self.corners == choice { button::suggested(label) } else { button::text(label) };
+                choices = choices.push(button.on_press(Message::Corners(choice.into())));
+            }
+            footer = footer.push(choices.wrap());
+        }
+        if self.setting_error { footer = footer.push(dim(tr("Could not save the setting."))); }
         footer.into()
     }
 
@@ -1964,7 +2096,8 @@ impl cosmic::Application for Monitor {
     }
 
     fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
-        let mut app = Self { core, window_mode, ..Default::default() };
+        let mut app = Self { core, window_mode, shot_key: shot_key_setting(), corners: corners_setting(), ..Default::default() };
+        corners::set_current(&app.corners);
         let task = if window_mode {
             app.set_header_title(tr(APP_NAME).into());
             app.set_window_title(tr(APP_NAME).into(), app.core.main_window_id().unwrap())
@@ -1990,6 +2123,19 @@ impl cosmic::Application for Monitor {
         if self.window_mode {
             subscriptions.push(cosmic::iced::time::every(Duration::from_millis(250)).map(|_| Message::WindowTick));
         }
+        // F12 (no modifiers) in the popup or window; Esc skips the screenshot's note.
+        subscriptions.push(cosmic::iced::event::listen_with(|event, _, id| match event {
+            cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                if shot::is_shot_key(&key, modifiers) {
+                    Some(Message::ShotKey(id))
+                } else if matches!(key, cosmic::iced::keyboard::Key::Named(cosmic::iced::keyboard::key::Named::Escape)) {
+                    Some(Message::Escape)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }));
         if self.scanning() {
             subscriptions.push(cosmic::iced::time::every(Duration::from_millis(650)).map(|_| Message::Pulse));
         }
@@ -2001,7 +2147,56 @@ impl cosmic::Application for Monitor {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ToggleLanguage => self.language_open = !self.language_open,
+            Message::ToggleLanguage => { self.language_open = !self.language_open; self.corners_open = false; }
+            Message::ShotKey(id) => {
+                let shown = if self.window_mode { self.core.main_window_id() == Some(id) } else { self.popup == Some(id) };
+                if self.shot_key && shown && self.shot == shot::Phase::Idle {
+                    self.shot = shot::Phase::Busy;
+                    self.capturing = true;
+                    return window::screenshot(id).map(|picture| cosmic::Action::App(Message::Captured(picture)));
+                }
+            }
+            Message::Captured(picture) => {
+                if !std::mem::take(&mut self.capturing) { return Task::none(); }
+                let (width, height) = (picture.size.width, picture.size.height);
+                return off_thread(move || shot::save_screenshot(SHOT_FOLDER, &picture.rgba, width, height), Message::ShotSaved);
+            }
+            Message::ShotSaved(result) => {
+                self.shot = match result {
+                    Ok(saved) => shot::Phase::Note { path: saved.path, shown: saved.shown, text: String::new() },
+                    Err(reason) => shot::Phase::Error(trf("The screenshot could not be saved: {0}", &[reason])),
+                };
+                if matches!(self.shot, shot::Phase::Note { .. }) {
+                    return text_input::focus(NOTE_ID.clone());
+                }
+            }
+            Message::NoteInput(value) => {
+                if let shot::Phase::Note { text, .. } = &mut self.shot {
+                    *text = value.chars().take(shot::NOTE_LIMIT).collect();
+                }
+            }
+            Message::NoteDone => return self.finish_note(true),
+            Message::Escape => {
+                if self.shot.open() { return self.finish_note(false); }
+            }
+            Message::NoteSaved(result) => match result {
+                Ok(()) => { if self.shot == shot::Phase::Noting { self.shot = shot::Phase::Idle; } }
+                Err(reason) => self.shot = shot::Phase::Error(trf("The note could not be saved: {0}", &[reason])),
+            },
+            Message::SetShotKey(on) => {
+                self.setting_error = write_pref("screenshot_key", Some(on.into())).is_err();
+                self.shot_key = on;
+            }
+            Message::ToggleCorners => { self.corners_open = !self.corners_open; self.language_open = false; }
+            Message::Corners(choice) => {
+                let choice = corners::normalize(&choice);
+                // "Like the desktop" is the default: no key in the settings file.
+                let value = (choice != "desktop").then(|| Value::from(choice));
+                self.setting_error = write_pref("corners", value).is_err();
+                self.corners = choice.to_string();
+                corners::set_current(choice);
+                self.corners_open = false;
+            }
             Message::Language(code) => {
                 self.language_error = i18n::save_language(&code).is_err();
                 self.send_json(json!({"cmd": "lang", "lang": i18n::language()}));
@@ -2018,6 +2213,10 @@ impl cosmic::Application for Monitor {
                 }
             }
             Message::Line(data) => {
+                // Settings changed in another interface (window, applet) take effect here too.
+                self.shot_key = shot_key_setting();
+                let corners = corners_setting();
+                if corners != self.corners { corners::set_current(&corners); self.corners = corners; }
                 let language = i18n::language();
                 let language_changed = language != self.last_language;
                 if language_changed {
@@ -2051,20 +2250,32 @@ impl cosmic::Application for Monitor {
                 RectangleUpdate::Init(tracker) => self.tracker = Some(tracker),
             },
             Message::CloseRequested(id) => {
-                if self.window_mode { return cosmic::iced::exit(); }
+                if self.window_mode {
+                    // A typed note is kept: written before the window goes.
+                    if let shot::Phase::Note { path, text, .. } = std::mem::take(&mut self.shot) {
+                        let _ = shot::save_note(&path, SHOT_FOLDER, &text);
+                    }
+                    return cosmic::iced::exit();
+                }
                 if self.popup == Some(id) {
                     self.popup = None;
                     self.popup_closed();
+                    return self.shot_popup_closed();
                 }
             }
             Message::TogglePopup => {
                 if self.window_mode { return Task::none(); }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
-                    return destroy_popup(popup);
+                    return Task::batch([self.shot_popup_closed(), destroy_popup(popup)]);
                 }
                 self.send("open");
-                return cosmic::surface::surface_task(cosmic::surface::action::app_popup(
+                let focus = if matches!(self.shot, shot::Phase::Note { .. }) {
+                    text_input::focus(NOTE_ID.clone())
+                } else {
+                    Task::none()
+                };
+                return Task::batch([cosmic::surface::surface_task(cosmic::surface::action::app_popup(
                     |_| Default::default(),
                     |app: &mut Self| {
                         let id = window::Id::unique();
@@ -2082,7 +2293,7 @@ impl cosmic::Application for Monitor {
                         settings
                     },
                     None,
-                ));
+                )), focus]);
             }
             Message::Rescan => {
                 if !self.rescan_pending {
@@ -2176,7 +2387,7 @@ impl cosmic::Application for Monitor {
                     spawn_detached(&["xdg-open", &url]);
                     if let Some(popup) = self.popup.take() {
                         self.popup_closed();
-                        return destroy_popup(popup);
+                        return Task::batch([self.shot_popup_closed(), destroy_popup(popup)]);
                     }
                 }
             }
@@ -2188,7 +2399,7 @@ impl cosmic::Application for Monitor {
                 }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
-                    return destroy_popup(popup);
+                    return Task::batch([self.shot_popup_closed(), destroy_popup(popup)]);
                 }
             }
             Message::OpenDevice(index) => {
@@ -2251,7 +2462,7 @@ impl cosmic::Application for Monitor {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        if self.window_mode { return self.popup_content(); }
+        if self.window_mode { return corners::apply(&self.corners, self.popup_content()); }
         let horizontal = matches!(self.core.applet.anchor, PanelAnchor::Top | PanelAnchor::Bottom);
         let padding = self.core.applet.suggested_padding(true).0;
         let button = button::custom(self.panel_content())
@@ -2268,8 +2479,8 @@ impl cosmic::Application for Monitor {
     }
 
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
-        if self.window_mode { return self.popup_content(); }
-        self.core.applet.popup_container(self.popup_content()).into()
+        if self.window_mode { return corners::apply(&self.corners, self.popup_content()); }
+        corners::apply(&self.corners, self.core.applet.popup_container(self.popup_content()))
     }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {

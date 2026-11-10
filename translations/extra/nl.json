@@ -12,5 +12,18 @@
   "the network": "het netwerk",
   "{0} signal": "Signaal: {0}",
   "Maprisma WLAN Monitor": "Maprisma-wifimonitor",
-  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Wie zit er op je wifi: apparaten, namen, meldingen over nieuwe apparaten en FRITZ!Box-meshdetails"
+  "Who is on your Wi-Fi: devices, names, new-device alerts and FRITZ!Box mesh details": "Wie zit er op je wifi: apparaten, namen, meldingen over nieuwe apparaten en FRITZ!Box-meshdetails",
+  "F12 saves a screenshot": "F12 bewaart een schermafbeelding",
+  "Screenshot saved": "Schermafbeelding bewaard",
+  "Saved as {0}": "Bewaard als {0}",
+  "What is wrong? (optional)": "Wat is er mis? (optioneel)",
+  "Done": "Klaar",
+  "The screenshot could not be saved: {0}": "De schermafbeelding kon niet worden bewaard: {0}",
+  "The note could not be saved: {0}": "De notitie kon niet worden bewaard: {0}",
+  "Corners": "Hoeken",
+  "Like the desktop ({0} px)": "Zoals het bureaublad ({0} px)",
+  "Slightly rounded ({0} px)": "Licht afgerond ({0} px)",
+  "Rounded ({0} px)": "Afgerond ({0} px)",
+  "Square": "Hoekig",
+  "Could not save the setting.": "De instelling kon niet worden bewaard."
 }
