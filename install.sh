@@ -55,7 +55,7 @@ $(sed -n '/^Name/p; /^Comment/p' "data/$id.desktop")
 Exec=$tray_exec
 Icon=$id-symbolic
 Terminal=false
-OnlyShowIn=KDE;
+OnlyShowIn=KDE;Hyprland;
 EOF
 gtk-update-icon-cache -q -t "$data/icons/hicolor" 2>/dev/null || true
 echo "Installed. Add “Maprisma WLAN Monitor” in COSMIC Settings › Desktop › Panel › Applets."
