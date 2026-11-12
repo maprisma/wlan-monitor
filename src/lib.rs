@@ -36,3 +36,4 @@ pub fn script_path(name: &str) -> Option<PathBuf> {
 pub mod i18n;
 pub mod shot;
 pub mod corners;
+pub mod look;

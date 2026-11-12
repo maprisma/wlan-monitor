@@ -1,9 +1,10 @@
 //! Settings › Corners, in AI Playground's three sizes. Shared copy: the same file in every
 //! Maprisma COSMIC app; change it in all of them.
 //!
-//! "desktop" follows the COSMIC theme's corner radius (its medium radius: 16 Round, 8 Slightly
-//! round, 2 Square in COSMIC Settings; elsewhere, as on KDE, the theme libcosmic loads), "slight"
-//! is 6, "rounded" 12, "square" 0. Cards and popup containers take the radius, buttons,
+//! "desktop" follows the desktop's window corners: the COSMIC theme's medium radius (16 Round, 8
+//! Slightly round, 2 Square in COSMIC Settings), Hyprland's rounding, KDE's 8 (look.rs); "slight"
+//! is 6, "rounded" 12, "square" 0. The colours come from look.rs too (the desktop's theme outside
+//! COSMIC). Cards and popup containers take the radius, buttons,
 //! drop-downs and fields at most 8, small parts (check boxes, tracks, badges, swatches) at most
 //! 4, pills stay round (0 in Square).
 
@@ -40,9 +41,9 @@ pub fn radius(setting: &str, desktop: f32) -> f32 {
     }
 }
 
-/// The theme's corner radius (what "Like the desktop" follows).
+/// The desktop's window corners (what "Like the desktop" follows).
 pub fn desktop_radius() -> f32 {
-    cosmic::theme::active().cosmic().corner_radii.radius_m[0]
+    crate::look::window_radius().unwrap_or_else(|| cosmic::theme::active().cosmic().corner_radii.radius_m[0])
 }
 
 pub fn sizes(setting: &str) -> Sizes {
@@ -80,22 +81,42 @@ pub fn radii(sizes: Sizes) -> cosmic::cosmic_theme::CornerRadii {
     }
 }
 
-/// The active theme with the chosen corners; None for "desktop" (the theme stays as it is).
+/// The desktop's theme (look.rs) with the chosen corners; None for "desktop" on COSMIC (the
+/// theme libcosmic has stays as it is).
 pub fn theme(setting: &str) -> Option<cosmic::Theme> {
-    if normalize(setting) == "desktop" {
+    let desktop = crate::look::theme();
+    if normalize(setting) == "desktop" && desktop.is_none() {
         return None;
     }
-    let mut theme = cosmic::theme::active();
+    let mut theme = desktop.unwrap_or_else(cosmic::theme::active);
     let mut cosmic = theme.cosmic().clone();
     cosmic.corner_radii = radii(sizes(setting));
     theme.theme_type = cosmic::theme::ThemeType::Custom(Arc::new(cosmic));
     Some(theme)
 }
 
-/// `content` drawn with the chosen corners.
+/// `content` drawn with the desktop's colours and the chosen corners (an applet popup: its
+/// container draws the background).
 pub fn apply<'a, M: 'a>(setting: &str, content: impl Into<cosmic::Element<'a, M>>) -> cosmic::Element<'a, M> {
     match theme(setting) {
         Some(theme) => cosmic::iced::widget::themer(Some(theme), content).into(),
+        None => content.into(),
+    }
+}
+
+/// The whole app's theme (a `--window`'s title bar too): the desktop's theme with the chosen
+/// corners, else the system's. On start and whenever corners or the desktop's look change.
+pub fn set_app_theme<M: Send + 'static>(setting: &str) -> cosmic::Task<cosmic::Action<M>> {
+    cosmic::command::set_theme(theme(setting).unwrap_or_else(cosmic::theme::system_preference))
+}
+
+/// [apply] for a whole window (`--window`): the window's background in the theme's colour too.
+pub fn apply_window<'a, M: 'a>(setting: &str, content: impl Into<cosmic::Element<'a, M>>) -> cosmic::Element<'a, M> {
+    match theme(setting) {
+        Some(theme) => cosmic::iced::widget::themer(Some(theme), content)
+            .background(crate::look::window_background)
+            .text_color(|t: &cosmic::Theme| t.cosmic().on_bg_color().into())
+            .into(),
         None => content.into(),
     }
 }
@@ -125,7 +146,7 @@ mod tests {
         assert_eq!((r.radius_xs, r.radius_s, r.radius_m, r.radius_xl), ([0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]));
         let r = radii(Sizes::new(12.0));
         assert_eq!((r.radius_xs[0], r.radius_s[0], r.radius_m[0], r.radius_l[0]), (4.0, 8.0, 12.0, 12.0));
-        assert!(theme("desktop").is_none());
+        // (theme("desktop") depends on the session's desktop: look.rs's tests cover the colours)
         assert_eq!(theme("rounded").unwrap().cosmic().corner_radii.radius_m, [12.0; 4]);
     }
 }
