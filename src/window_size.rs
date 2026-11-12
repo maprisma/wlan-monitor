@@ -58,8 +58,9 @@ impl Debounce {
     }
 
     /// The size to save now: `SETTLE` after the last resize, and only when it changed.
-    /// `ignore`: the window is maximised, fullscreen or tiled; that size is not the user's.
-    pub fn due(&mut self, now: Instant, ignore: bool) -> Option<Size> {
+    /// `ignore` (asked only when something is to be saved): the window is maximised, fullscreen
+    /// or tiled; that size is not the user's. See [not_users_size].
+    pub fn due(&mut self, now: Instant, ignore: impl FnOnce() -> bool) -> Option<Size> {
         let (_, at) = self.pending?;
         if now.duration_since(at) < SETTLE {
             return None;
@@ -68,14 +69,44 @@ impl Debounce {
     }
 
     /// The window closes: whatever is waiting, at once.
-    pub fn flush(&mut self, ignore: bool) -> Option<Size> {
+    pub fn flush(&mut self, ignore: impl FnOnce() -> bool) -> Option<Size> {
         let (size, _) = self.pending.take()?;
-        if ignore || self.saved == Some(size) {
+        if self.saved == Some(size) || ignore() {
             return None;
         }
         self.saved = Some(size);
         Some(size)
     }
+}
+
+/// Whether the window's present size is not the user's own choice. libcosmic's sharp corners
+/// (`core.window.sharp_corners`: maximised, fullscreen or tiled) say so on COSMIC and KDE; Hyprland
+/// marks every window as tiled, floating ones too, so there hyprctl says whether this process's
+/// window floats and isn't fullscreen. Spawns hyprctl: call it only when a size is to be saved.
+pub fn not_users_size(sharp_corners: bool) -> bool {
+    // In a Hyprland session (never in unit tests: they must not ask the real one).
+    if cfg!(test) || std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none_or(|v| v.is_empty()) {
+        return sharp_corners;
+    }
+    let out = std::process::Command::new("hyprctl")
+        .args(["-j", "clients"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match out {
+        Ok(out) => hypr_not_users(&out.stdout, std::process::id()).unwrap_or(sharp_corners),
+        Err(_) => sharp_corners,
+    }
+}
+
+/// From `hyprctl -j clients`: Some(true) when this pid's window is tiled or fullscreen,
+/// Some(false) when it floats; None when the window isn't listed.
+pub fn hypr_not_users(clients: &[u8], pid: u32) -> Option<bool> {
+    let list: Value = serde_json::from_slice(clients).ok()?;
+    let me = list.as_array()?.iter().find(|c| c["pid"].as_u64() == Some(pid as u64))?;
+    let floating = me["floating"].as_bool()?;
+    let fullscreen = me["fullscreen"].as_u64().map(|f| f != 0).or_else(|| me["fullscreen"].as_bool()).unwrap_or(false);
+    Some(!floating || fullscreen)
 }
 
 #[cfg(test)]
@@ -106,22 +137,36 @@ mod tests {
         let mut d = Debounce::new((400.0, 860.0));
         // Opening at the start size writes nothing.
         d.resized(400.0, 860.0, start);
-        assert_eq!(d.due(start + SETTLE, false), None);
+        assert_eq!(d.due(start + SETTLE, || false), None);
         assert!(!d.waiting());
         // A drag: only the last size, only after SETTLE.
         d.resized(450.0, 860.0, start);
         d.resized(500.0, 900.0, start + Duration::from_millis(100));
         assert!(d.waiting());
-        assert_eq!(d.due(start + Duration::from_millis(400), false), None);
-        assert_eq!(d.due(start + Duration::from_millis(600), false), Some((500.0, 900.0)));
+        assert_eq!(d.due(start + Duration::from_millis(400), || false), None);
+        assert_eq!(d.due(start + Duration::from_millis(600), || false), Some((500.0, 900.0)));
         assert!(!d.waiting());
         // Maximised / tiled sizes are dropped.
         d.resized(1920.0, 1080.0, start);
-        assert_eq!(d.due(start + SETTLE, true), None);
+        assert_eq!(d.due(start + SETTLE, || true), None);
         assert!(!d.waiting());
         // Closing right after a resize saves it at once.
         d.resized(520.0, 910.0, start);
-        assert_eq!(d.flush(false), Some((520.0, 910.0)));
-        assert_eq!(d.flush(false), None);
+        assert_eq!(d.flush(|| false), Some((520.0, 910.0)));
+        assert_eq!(d.flush(|| false), None);
+        // Nothing to save: `ignore` is not asked (no hyprctl per tick).
+        assert_eq!(d.due(start + SETTLE, || panic!("asked")), None);
+    }
+
+    #[test]
+    fn hyprland_floating_is_the_users() {
+        let clients = br#"[{"pid": 7, "floating": false, "fullscreen": 0},
+                           {"pid": 42, "floating": true, "fullscreen": 0},
+                           {"pid": 43, "floating": true, "fullscreen": 2}]"#;
+        assert_eq!(hypr_not_users(clients, 42), Some(false));
+        assert_eq!(hypr_not_users(clients, 7), Some(true));
+        assert_eq!(hypr_not_users(clients, 43), Some(true));
+        assert_eq!(hypr_not_users(clients, 99), None);
+        assert_eq!(hypr_not_users(b"oops", 42), None);
     }
 }

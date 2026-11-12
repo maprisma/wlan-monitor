@@ -2124,7 +2124,8 @@ impl Monitor {
     // A resize that has settled (or, on `closing`, any waiting one) goes to the settings; not
     // while maximised, fullscreen or tiled (libcosmic's sharp corners).
     fn save_size(&mut self, closing: bool) {
-        let ignore = self.core.window.sharp_corners;
+        let sharp = self.core.window.sharp_corners;
+        let ignore = || window_size::not_users_size(sharp);
         let size = if closing { self.resize.flush(ignore) } else { self.resize.due(std::time::Instant::now(), ignore) };
         if let Some(size) = size {
             self.setting_error = write_pref(window_size::KEY, Some(window_size::to_value(size))).is_err();
