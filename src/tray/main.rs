@@ -285,12 +285,29 @@ print(json.dumps(d))
         _ => tr("Status unavailable").into(),
     }
 }
+/// A window this tray started is still running (it may not have claimed its name yet).
+static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The open window's connection. A window this tray just started gets up to 2 s to claim its
+/// name, so a second click while it is starting closes it instead of being lost.
+async fn window_owner(dbus: &zbus::fdo::DBusProxy<'_>) -> Option<zbus::names::OwnedUniqueName> {
+    for _ in 0..40 {
+        if let Ok(owner) = dbus.get_name_owner(WINDOW_BUS.try_into().ok()?).await {
+            return Some(owner);
+        }
+        if !STARTED.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    None
+}
 async fn window_action(
     connection: &Connection,
     toggle: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dbus = zbus::fdo::DBusProxy::new(connection).await?;
-    if let Ok(owner) = dbus.get_name_owner(WINDOW_BUS.try_into()?).await {
+    if let Some(owner) = window_owner(&dbus).await {
         if toggle {
             let proxy = zbus::Proxy::new(connection, owner.as_str(), "/Window", WINDOW_BUS).await?;
             proxy.call::<_, _, ()>("Close", &()).await?;
@@ -301,8 +318,10 @@ async fn window_action(
             .arg("--window")
             .stdin(std::process::Stdio::null())
             .spawn()?;
+        STARTED.store(true, std::sync::atomic::Ordering::Relaxed);
         tokio::spawn(async move {
             let _ = child.wait().await;
+            STARTED.store(false, std::sync::atomic::Ordering::Relaxed);
         });
     }
     Ok(())

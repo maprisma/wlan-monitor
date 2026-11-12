@@ -1,5 +1,6 @@
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
 use maprisma_wlan_monitor::{corners, shot};
+mod window_size;
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
 // signal-quality line underneath. It pulses while the subnet is being scanned,
@@ -77,12 +78,64 @@ fn main() -> cosmic::iced::Result {
     };
     cosmic::app::run::<Monitor>(
         cosmic::app::Settings::default()
-            .size(cosmic::iced::Size::new(POPUP_WIDTH, POPUP_MAX_HEIGHT))
+            .size({ let (width, height) = window_start_size(); cosmic::iced::Size::new(width, height) })
             .resizable(Some(8.0))
             .transparent(false)
             .is_daemon(false),
         true,
     )
+}
+
+// The `--window` size: the one the user left it at (layout rule 5a), else the popup's.
+fn window_start_size() -> window_size::Size {
+    window_size::parse(read_pref(window_size::KEY).as_ref()).unwrap_or((POPUP_WIDTH, POPUP_MAX_HEIGHT))
+}
+
+/// What Esc does (layout rule 5a): the innermost open thing first, then the window or popup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EscStep {
+    /// Skip the screenshot's note (or close its error).
+    Note,
+    /// Cancel the device rename.
+    Rename,
+    /// Close the FRITZ!Box login form.
+    FritzForm,
+    /// Close the open Language / Corners / view list.
+    Menus,
+    /// Clear the device search.
+    Filter,
+    /// Close the window (`--window`) or the popup.
+    Close,
+    Nothing,
+}
+
+/// What is open, innermost first; `shown`: Esc came from the window or the open popup.
+#[derive(Debug, Default, Clone, Copy)]
+struct EscState {
+    shown: bool,
+    note: bool,
+    rename: bool,
+    fritz_form: bool,
+    menus: bool,
+    filter: bool,
+}
+
+fn esc_step(state: EscState) -> EscStep {
+    if !state.shown {
+        EscStep::Nothing
+    } else if state.note {
+        EscStep::Note
+    } else if state.rename {
+        EscStep::Rename
+    } else if state.fritz_form {
+        EscStep::FritzForm
+    } else if state.menus {
+        EscStep::Menus
+    } else if state.filter {
+        EscStep::Filter
+    } else {
+        EscStep::Close
+    }
 }
 
 // ------------------------------------------------------------------------- texts and values
@@ -660,6 +713,7 @@ struct Monitor {
     corners: String,
     corners_open: bool,
     setting_error: bool,
+    resize: window_size::Debounce,
 }
 
 #[derive(Debug, Clone)]
@@ -707,7 +761,7 @@ enum Message {
     FritzCancel,
     FritzHelp,
     ShotKey(window::Id),
-    Escape,
+    Escape(window::Id),
     Captured(window::Screenshot),
     ShotSaved(Result<shot::Saved, String>),
     NoteInput(String),
@@ -2067,6 +2121,16 @@ impl Monitor {
         self.fritz_form_net_id.clear();
     }
 
+    // A resize that has settled (or, on `closing`, any waiting one) goes to the settings; not
+    // while maximised, fullscreen or tiled (libcosmic's sharp corners).
+    fn save_size(&mut self, closing: bool) {
+        let ignore = self.core.window.sharp_corners;
+        let size = if closing { self.resize.flush(ignore) } else { self.resize.due(std::time::Instant::now(), ignore) };
+        if let Some(size) = size {
+            self.setting_error = write_pref(window_size::KEY, Some(window_size::to_value(size))).is_err();
+        }
+    }
+
     fn popup_closed(&mut self) {
         self.send("closed");
         self.chooser = false;
@@ -2125,6 +2189,7 @@ impl cosmic::Application for Monitor {
 
     fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
         let mut app = Self { core, window_mode, shot_key: shot_key_setting(), corners: corners_setting(), ..Default::default() };
+        if window_mode { app.resize = window_size::Debounce::new(window_start_size()); }
         corners::set_current(&app.corners);
         let task = if window_mode {
             app.set_header_title(tr(APP_NAME).into());
@@ -2137,6 +2202,12 @@ impl cosmic::Application for Monitor {
 
     fn on_close_requested(&self, id: window::Id) -> Option<Message> {
         Some(Message::CloseRequested(id))
+    }
+
+    fn on_window_resize(&mut self, id: window::Id, width: f32, height: f32) {
+        if self.window_mode && self.core.main_window_id() == Some(id) {
+            self.resize.resized(width, height, std::time::Instant::now());
+        }
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -2153,13 +2224,16 @@ impl cosmic::Application for Monitor {
         if self.window_mode {
             subscriptions.push(cosmic::iced::time::every(Duration::from_millis(250)).map(|_| Message::WindowTick));
         }
-        // F12 (no modifiers) in the popup or window; Esc skips the screenshot's note.
-        subscriptions.push(cosmic::iced::event::listen_with(|event, _, id| match event {
+        // F12 (no modifiers) in the popup or window; Esc closes the innermost thing (esc_step).
+        subscriptions.push(cosmic::iced::event::listen_with(|event, status, id| match event {
             cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 if shot::is_shot_key(&key, modifiers) {
                     Some(Message::ShotKey(id))
-                } else if matches!(key, cosmic::iced::keyboard::Key::Named(cosmic::iced::keyboard::key::Named::Escape)) {
-                    Some(Message::Escape)
+                } else if status == cosmic::iced::event::Status::Ignored
+                    && matches!(key, cosmic::iced::keyboard::Key::Named(cosmic::iced::keyboard::key::Named::Escape))
+                {
+                    // Not one an open drop-down list took to close itself.
+                    Some(Message::Escape(id))
                 } else {
                     None
                 }
@@ -2206,8 +2280,26 @@ impl cosmic::Application for Monitor {
                 }
             }
             Message::NoteDone => return self.finish_note(true),
-            Message::Escape => {
-                if self.shot.open() { return self.finish_note(false); }
+            Message::Escape(id) => {
+                let shown = if self.window_mode { self.core.main_window_id() == Some(id) } else { self.popup == Some(id) };
+                match esc_step(EscState {
+                    shown,
+                    note: self.shot.open(),
+                    rename: !self.editing.is_empty(),
+                    fritz_form: self.fritz_form_open,
+                    menus: self.language_open || self.corners_open || self.chooser,
+                    filter: !self.filter.is_empty(),
+                }) {
+                    EscStep::Note => return self.finish_note(false),
+                    EscStep::Rename => return self.update(Message::CancelRename),
+                    EscStep::FritzForm => self.close_fritz_form(),
+                    EscStep::Menus => { self.language_open = false; self.corners_open = false; self.chooser = false; }
+                    EscStep::Filter => self.filter.clear(),
+                    // Like the window's own close (the tray keeps running); the popup like a click on the icon.
+                    EscStep::Close if self.window_mode => return self.update(Message::CloseRequested(id)),
+                    EscStep::Close => return self.update(Message::TogglePopup),
+                    EscStep::Nothing => {}
+                }
             }
             Message::NoteSaved(result) => match result {
                 Ok(()) => { if self.shot == shot::Phase::Noting { self.shot = shot::Phase::Idle; } }
@@ -2277,7 +2369,8 @@ impl cosmic::Application for Monitor {
             }
             Message::Pulse => self.pulse_dim = !self.pulse_dim,
             Message::WindowTick => {
-                if CLOSE_WINDOW.load(Ordering::Relaxed) { return cosmic::iced::exit(); }
+                if CLOSE_WINDOW.load(Ordering::Relaxed) { self.save_size(true); return cosmic::iced::exit(); }
+                if self.resize.waiting() { self.save_size(false); }
                 // The desktop's colours and corners (Maprisma Theme can change them any time);
                 // look::refresh re-reads at most every 5 s.
                 if maprisma_wlan_monitor::look::refresh() { return corners::set_app_theme(&self.corners); }
@@ -2289,6 +2382,7 @@ impl cosmic::Application for Monitor {
             },
             Message::CloseRequested(id) => {
                 if self.window_mode {
+                    self.save_size(true);
                     // A typed note is kept: written before the window goes.
                     if let shot::Phase::Note { path, text, .. } = std::mem::take(&mut self.shot) {
                         let _ = shot::save_note(&path, SHOT_FOLDER, &text);
@@ -2593,5 +2687,24 @@ fn spawn_detached(argv: &[&str]) {
         std::thread::spawn(move || {
             let _ = child.wait();
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn esc_closes_the_innermost_thing_first() {
+        let all = EscState { shown: true, note: true, rename: true, fritz_form: true, menus: true, filter: true };
+        assert_eq!(esc_step(all), EscStep::Note);
+        assert_eq!(esc_step(EscState { note: false, ..all }), EscStep::Rename);
+        assert_eq!(esc_step(EscState { note: false, rename: false, ..all }), EscStep::FritzForm);
+        let menus = EscState { shown: true, menus: true, filter: true, ..Default::default() };
+        assert_eq!(esc_step(menus), EscStep::Menus);
+        assert_eq!(esc_step(EscState { menus: false, ..menus }), EscStep::Filter);
+        assert_eq!(esc_step(EscState { shown: true, ..Default::default() }), EscStep::Close);
+        // Not from the window or the open popup (e.g. the panel button): nothing.
+        assert_eq!(esc_step(EscState { shown: false, ..all }), EscStep::Nothing);
     }
 }
