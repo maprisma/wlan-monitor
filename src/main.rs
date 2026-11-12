@@ -57,6 +57,15 @@ const LIST_MAX_HEIGHT: f32 = 420.0;
 const CLIPBOARD_LIMIT: usize = 262144;
 const FLASH: Duration = Duration::from_millis(1500);
 
+/// A second `--window` start toggles (layout rule 5a): the open window is told to close, the way
+/// its tray does, then this one ends. Every entry point (tray, Maprisma Shell's glyph, launcher)
+/// gets the same toggle.
+async fn close_running_window(bus: &str) {
+    if let Ok(connection) = zbus::Connection::session().await {
+        let _ = connection.call_method(Some(bus), "/Window", Some("io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window"), "Close", &()).await;
+    }
+}
+
 fn main() -> cosmic::iced::Result {
     if !std::env::args().any(|arg| arg == "--window") {
         return cosmic::applet::run::<Monitor>(false);
@@ -70,7 +79,10 @@ fn main() -> cosmic::iced::Result {
     });
     let _connection = match connection {
         Ok(connection) => connection,
-        Err(zbus::Error::NameTaken) => return Ok(()),
+        Err(zbus::Error::NameTaken) => {
+            runtime.block_on(close_running_window(WINDOW_BUS));
+            return Ok(());
+        }
         Err(error) => {
             eprintln!("Window D-Bus: {error}");
             std::process::exit(1);
