@@ -11,7 +11,8 @@
 //!
 //! The same sources and keys as Maprisma Manager's `desktop.look` (desktop_look.dart), so every
 //! Maprisma app shows the same colours. `MAPRISMA_DESKTOP=cosmic|kde|hyprland|other` overrides
-//! the desktop (tests, screenshots).
+//! the desktop (tests, screenshots); without `XDG_CURRENT_DESKTOP` the session's other hints
+//! decide (desktop_in).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -44,14 +45,50 @@ pub fn desktop_from(forced: Option<&str>, current: &str) -> Desktop {
     }
 }
 
+/// The session's other hints, asked only when `XDG_CURRENT_DESKTOP` is unset or empty (a
+/// service or wrapper that dropped it): `XDG_SESSION_DESKTOP`, then Hyprland's instance
+/// signature, then Plasma's `KDE_FULL_SESSION`.
+#[derive(Debug, Clone, Default)]
+pub struct SessionHints {
+    pub session_desktop: String,
+    pub hyprland_signature: String,
+    pub kde_full_session: String,
+}
+
+pub fn desktop_in(forced: Option<&str>, current: &str, hints: &SessionHints) -> Desktop {
+    let forced_valid = forced
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|f| matches!(f.as_str(), "cosmic" | "kde" | "hyprland" | "other"));
+    if forced_valid || !current.trim().is_empty() {
+        return desktop_from(forced, current);
+    }
+    match desktop_from(None, hints.session_desktop.trim()) {
+        Desktop::Other => {}
+        found => return found,
+    }
+    if !hints.hyprland_signature.trim().is_empty() {
+        Desktop::Hyprland
+    } else if hints.kde_full_session.trim().eq_ignore_ascii_case("true") {
+        Desktop::Kde
+    } else {
+        Desktop::Other
+    }
+}
+
 pub fn desktop() -> Desktop {
     // Unit tests never read the session's files or ask hyprctl.
     if cfg!(test) {
         return Desktop::Other;
     }
-    desktop_from(
+    let var = |name: &str| std::env::var(name).unwrap_or_default();
+    desktop_in(
         std::env::var("MAPRISMA_DESKTOP").ok().as_deref(),
-        &std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        &var("XDG_CURRENT_DESKTOP"),
+        &SessionHints {
+            session_desktop: var("XDG_SESSION_DESKTOP"),
+            hyprland_signature: var("HYPRLAND_INSTANCE_SIGNATURE"),
+            kde_full_session: var("KDE_FULL_SESSION"),
+        },
     )
 }
 
@@ -314,6 +351,31 @@ mod tests {
         assert_eq!(desktop_from(None, "ubuntu:GNOME"), Desktop::Other);
         assert_eq!(desktop_from(Some("kde"), "Hyprland"), Desktop::Kde);
         assert_eq!(desktop_from(Some("bogus"), "COSMIC"), Desktop::Cosmic);
+    }
+
+    #[test]
+    fn desktop_without_xdg_current_desktop() {
+        let none = SessionHints::default();
+        let hints = |s: &str, h: &str, k: &str| SessionHints {
+            session_desktop: s.into(),
+            hyprland_signature: h.into(),
+            kde_full_session: k.into(),
+        };
+        // XDG_CURRENT_DESKTOP set: the hints are not asked.
+        assert_eq!(desktop_in(None, "KDE", &hints("", "abc", "")), Desktop::Kde);
+        assert_eq!(desktop_in(None, "ubuntu:GNOME", &hints("KDE", "", "true")), Desktop::Other);
+        // Unset or empty: the session's hints.
+        assert_eq!(desktop_in(None, "", &none), Desktop::Other);
+        assert_eq!(desktop_in(None, "", &hints("KDE", "", "")), Desktop::Kde);
+        assert_eq!(desktop_in(None, " ", &hints("plasma", "", "true")), Desktop::Kde);
+        assert_eq!(desktop_in(None, "", &hints("hyprland", "", "")), Desktop::Hyprland);
+        assert_eq!(desktop_in(None, "", &hints("", "v0.56_123", "")), Desktop::Hyprland);
+        assert_eq!(desktop_in(None, "", &hints("COSMIC", "", "")), Desktop::Cosmic);
+        assert_eq!(desktop_in(None, "", &hints("", "", "false")), Desktop::Other);
+        // MAPRISMA_DESKTOP still wins, "other" too; a bogus one is ignored.
+        assert_eq!(desktop_in(Some("other"), "", &hints("KDE", "x", "true")), Desktop::Other);
+        assert_eq!(desktop_in(Some("cosmic"), "", &hints("KDE", "", "")), Desktop::Cosmic);
+        assert_eq!(desktop_in(Some("bogus"), "", &hints("", "x", "")), Desktop::Hyprland);
     }
 
     #[test]
