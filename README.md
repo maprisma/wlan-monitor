@@ -117,17 +117,21 @@ On KDE Plasma 6.8 (Wayland), run `./install.sh` and launch **Maprisma WLAN Monit
 from the application launcher, or run `~/.local/bin/maprisma-wlan-monitor --window`.
 The resizable libcosmic window contains the same UI as the COSMIC popup, with the
 same collector, settings, commands and refresh subscriptions. Its settings button
-opens KDE's network settings. Only one window runs per session.
+opens the desktop's network settings (COSMIC's, KDE's; on Hyprland the first installed of
+Omarchy's Wi-Fi launcher, `nm-connection-editor`, KDE's, COSMIC's). Only one window runs
+per session.
 
 The installer also installs `~/.local/bin/maprisma-wlan-monitor-tray` and a
 KDE-only autostart entry in `${XDG_CONFIG_HOME:-~/.config}/autostart/` (active on
 next login). Run the tray binary manually to start it immediately. Left click
-opens or closes the window; the menu offers **Open Maprisma WLAN Monitor** and
-**Quit tray**. Quitting the tray leaves an open window running. The tray reconnects
-when Plasma's StatusNotifierWatcher restarts, and only one tray runs per session.
-Its tooltip refreshes connection, signal and VPN status every ten seconds using
-only the existing collector's read helpers, without starting discovery or FRITZ!Box
-polling. The radar icon uses the installed symbolic icon.
+opens or closes the window; the menu offers **Open Maprisma WLAN Monitor** (brings an
+open window to the front, also a minimized one) and **Quit tray**. Quitting the tray
+leaves an open window running. The tray reconnects when Plasma's StatusNotifierWatcher
+restarts, and only one tray runs per session. While no window is open the tray runs the
+collector itself, at its "panel closed" pace, so discovery and new-device alerts go on
+after the window closes (as with COSMIC's applet); it ends with the tray. Its tooltip
+refreshes connection, signal and VPN status every ten seconds using the collector's
+read helpers. The radar icon uses the installed symbolic icon.
 
 Running `maprisma-wlan-monitor` without arguments still starts the COSMIC applet.
 The shared `scripts/` files are unchanged.

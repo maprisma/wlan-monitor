@@ -256,8 +256,75 @@ impl Tray {
     #[zbus(signal)]
     async fn new_tool_tip(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
-// Read only the collector's interface/signal/VPN helpers. Never construct its
-// Monitor or run --once: the tray must not start discovery or FRITZ!Box polling.
+/// What the tray's own collector does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CollectorStep {
+    Start,
+    Stop,
+    Keep,
+}
+
+/// The tray runs the collector while no window is open (an open window runs its own), so
+/// discovery and new-device alerts go on after the window closes, as with COSMIC's applet.
+fn collector_step(window_open: bool, running: bool) -> CollectorStep {
+    match (window_open, running) {
+        (false, false) => CollectorStep::Start,
+        (true, true) => CollectorStep::Stop,
+        _ => CollectorStep::Keep,
+    }
+}
+
+fn spawn_collector() -> Option<tokio::process::Child> {
+    let script = script_path("wlan-monitor.py")?;
+    let mut command = tokio::process::Command::new("python3");
+    command
+        .arg("-I")
+        .arg(script)
+        // No commands: it stays in its "panel closed" pace; its snapshots aren't needed here.
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    // Ends with the tray, also when the tray is killed.
+    unsafe {
+        command.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+    command.spawn().ok()
+}
+
+async fn background_collector(connection: Connection) {
+    let mut child: Option<tokio::process::Child> = None;
+    loop {
+        if let Some(running) = child.as_mut()
+            && !matches!(running.try_wait(), Ok(None))
+        {
+            child = None; // it ended: started again below
+        }
+        let window_open = match zbus::fdo::DBusProxy::new(&connection).await {
+            Ok(dbus) => match WINDOW_BUS.try_into() {
+                Ok(name) => dbus.get_name_owner(name).await.is_ok(),
+                Err(_) => false,
+            },
+            Err(_) => false,
+        };
+        match collector_step(window_open, child.is_some()) {
+            CollectorStep::Start => child = spawn_collector(),
+            CollectorStep::Stop => {
+                if let Some(mut running) = child.take() {
+                    let _ = running.kill().await;
+                }
+            }
+            CollectorStep::Keep => {}
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+// Read only the collector's interface/signal/VPN helpers for the tooltip. Never construct its
+// Monitor or run --once here: discovery runs in background_collector (or the open window).
 async fn read_status() -> String {
     let Some(script) = script_path("wlan-monitor.py") else {
         return tr("Collector not installed").into();
@@ -410,6 +477,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    tokio::spawn(background_collector(connection.clone()));
     let (status_tx, mut status_rx) = mpsc::channel(1);
     tokio::spawn(async move {
         loop {
@@ -475,6 +543,13 @@ mod tests {
         assert_eq!(layout(&menu, 1, &[]).2.len(), 3);
         let props = properties(menu.find(1).unwrap(), &["label".into()]);
         assert_eq!(props.len(), 1);
+    }
+    #[test]
+    fn collector_runs_only_while_no_window_is_open() {
+        assert_eq!(collector_step(false, false), CollectorStep::Start);
+        assert_eq!(collector_step(false, true), CollectorStep::Keep);
+        assert_eq!(collector_step(true, true), CollectorStep::Stop);
+        assert_eq!(collector_step(true, false), CollectorStep::Keep);
     }
     #[tokio::test]
     async fn menu_events() {
