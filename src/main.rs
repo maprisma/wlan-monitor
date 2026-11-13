@@ -41,6 +41,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 const APP_ID: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor";
+const WINDOW_APP_ID: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window";
 static AUTOSIZE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-autosize"));
 static SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-search"));
 static RENAME_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-rename"));
@@ -89,7 +90,7 @@ fn main() -> cosmic::iced::Result {
             std::process::exit(1);
         }
     };
-    cosmic::app::run::<Monitor>(
+    cosmic::app::run::<Monitor<true>>(
         cosmic::app::Settings::default()
             .size({ let (width, height) = window_start_size(); cosmic::iced::Size::new(width, height) })
             .resizable(Some(8.0))
@@ -687,7 +688,7 @@ struct MapRow {
 // ------------------------------------------------------------------------- applet
 
 #[derive(Default)]
-struct Monitor {
+struct Monitor<const WINDOW_MODE: bool = false> {
     core: Core,
     window_mode: bool,
     popup: Option<window::Id>,
@@ -808,7 +809,7 @@ fn corners_setting() -> String {
     corners::normalize(read_pref("corners").as_ref().and_then(Value::as_str).unwrap_or("")).to_string()
 }
 
-impl Monitor {
+impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     // Done, Enter or the popup closing (keep: the note typed so far is saved), Esc (skip).
     fn finish_note(&mut self, keep: bool) -> Task<Message> {
         match std::mem::take(&mut self.shot) {
@@ -1246,8 +1247,8 @@ impl Monitor {
         let mut rows = vec![MapRow { depth: 0, kind: MapKind::Internet, dev: None, collapsed: false }];
         let mode = self.view_mode();
         // Under each router / repeater: its devices in the groups, then its repeaters.
-        fn walk(
-            this: &Monitor,
+        fn walk<const W: bool>(
+            this: &Monitor<W>,
             rows: &mut Vec<MapRow>,
             devs: &[usize],
             ap: usize,
@@ -2187,11 +2188,13 @@ impl Monitor {
     }
 }
 
-impl cosmic::Application for Monitor {
+impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
     type Executor = cosmic::SingleThreadExecutor;
     type Flags = bool;
     type Message = Message;
-    const APP_ID: &'static str = APP_ID;
+    // Wayland's app id: the panel applet's, or the window's own (`<id>.Window`, the id of the
+    // `.Window.desktop` entry install.sh writes, so taskbars and window rules find it).
+    const APP_ID: &'static str = if WINDOW_MODE { WINDOW_APP_ID } else { APP_ID };
 
     fn core(&self) -> &Core {
         &self.core
