@@ -51,6 +51,7 @@ static NOTE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-shot-note"
 // F12 pictures go to ~/Pictures/<this>/ (the app's name, the same in every language).
 const SHOT_FOLDER: &str = APP_NAME;
 const RADAR: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
+const RADAR_OFF: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg");
 
 const RESTART_DELAY: Duration = Duration::from_secs(5); // before a collector that exited starts again
 const POPUP_WIDTH: f32 = 440.0;
@@ -653,7 +654,16 @@ fn signal_bars<'a>(quality: f64) -> Element<'a, Message> {
 
 // The radar icon, coloured (None: the theme's text colour), at `alpha`.
 fn radar<'a>(size: f32, tone: Option<Tone>, alpha: f32) -> Element<'a, Message> {
-    svg(iced_svg::Handle::from_memory(RADAR))
+    radar_shape(RADAR, size, tone, alpha)
+}
+
+// The bar's radar: rings without sweep and dot while not connected (as the tray shows it).
+fn bar_radar<'a>(on: bool, size: f32, tone: Option<Tone>, alpha: f32) -> Element<'a, Message> {
+    radar_shape(if on { RADAR } else { RADAR_OFF }, size, tone, alpha)
+}
+
+fn radar_shape<'a>(bytes: &'static [u8], size: f32, tone: Option<Tone>, alpha: f32) -> Element<'a, Message> {
+    svg(iced_svg::Handle::from_memory(bytes))
         .width(Length::Fixed(size))
         .height(Length::Fixed(size))
         .class(theme::Svg::custom(move |theme: &cosmic::Theme| {
@@ -1336,7 +1346,7 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         } else {
             0.6
         };
-        let mut glyph = row![radar(size, color, alpha)].align_y(Alignment::Start);
+        let mut glyph = row![bar_radar(active || self.scanning(), size, color, alpha)].align_y(Alignment::Start);
         // Dot: devices joined recently and are not marked as known yet.
         if n(&self.stats, "new_count") > 0.0 {
             glyph = glyph.push(

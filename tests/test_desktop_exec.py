@@ -19,3 +19,13 @@ class DesktopExecTests(unittest.TestCase):
                 argv = shlex.split(value)
                 self.assertEqual(len(argv), 1)
                 self.assertEqual(argv[0].replace("\\$", "$").replace("\\`", "`").replace("%%", "%"), path)
+
+
+class TrayIconTests(unittest.TestCase):
+    def test_off_radar_is_installed(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        installer = (root / "install.sh").read_text()
+        self.assertIn('"data/icons/$id-off-symbolic.svg"', installer)
+        self.assertTrue((root / "data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg").is_file())
+        lib = (root / "src/lib.rs").read_text()
+        self.assertIn('"io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic"', lib)

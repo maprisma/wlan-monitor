@@ -1,7 +1,7 @@
 use maprisma_wlan_monitor::i18n::{self, tr};
 mod model;
 mod present;
-use maprisma_wlan_monitor::{APP_NAME, ICON, WINDOW_BUS, script_path};
+use maprisma_wlan_monitor::{APP_NAME, ICON, WINDOW_BUS, icon_for, script_path};
 use model::Action;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, mpsc};
@@ -16,6 +16,7 @@ type Layout = (i32, Props, Vec<OwnedValue>);
 type Pixmaps = Vec<(i32, i32, Vec<u8>)>;
 struct State {
     tooltip: String,
+    connected: bool,
     menu: model::Item,
     revision: u32,
 }
@@ -199,8 +200,8 @@ impl Tray {
         0
     }
     #[zbus(property)]
-    fn icon_name(&self) -> &str {
-        ICON
+    async fn icon_name(&self) -> &str {
+        icon_for(self.state.lock().await.connected)
     }
     #[zbus(property)]
     fn icon_pixmap(&self) -> Pixmaps {
@@ -255,6 +256,8 @@ impl Tray {
     async fn new_status(emitter: &SignalEmitter<'_>, status: &str) -> zbus::Result<()>;
     #[zbus(signal)]
     async fn new_tool_tip(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn new_icon(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
 /// What the tray's own collector does next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,9 +328,10 @@ async fn background_collector(connection: Connection) {
 
 // Read only the collector's interface/signal/VPN helpers for the tooltip. Never construct its
 // Monitor or run --once here: discovery runs in background_collector (or the open window).
-async fn read_status() -> String {
+/// The tooltip and whether a network link is up.
+async fn read_status() -> (String, bool) {
     let Some(script) = script_path("wlan-monitor.py") else {
-        return tr("Collector not installed").into();
+        return (tr("Collector not installed").into(), false);
     };
     let code = r#"import importlib.util,json,sys
 spec=importlib.util.spec_from_file_location('wlan',sys.argv[1])
@@ -347,10 +351,10 @@ print(json.dumps(d))
         .arg(script)
         .kill_on_drop(true);
     match tokio::time::timeout(Duration::from_secs(8), command.output()).await {
-        Ok(Ok(output)) if output.status.success() => serde_json::from_slice(&output.stdout)
-            .map(|v| model::tooltip(&v))
-            .unwrap_or_else(|_| tr("Status unavailable").into()),
-        _ => tr("Status unavailable").into(),
+        Ok(Ok(output)) if output.status.success() => serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .map(|v| (model::tooltip(&v), v["active"].as_bool() == Some(true)))
+            .unwrap_or_else(|_| (tr("Status unavailable").into(), false)),
+        _ => (tr("Status unavailable").into(), false),
     }
 }
 /// A window this tray started is still running (it may not have claimed its name yet).
@@ -401,6 +405,7 @@ async fn window_action(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial = State {
         tooltip: tr("Checking connection…").into(),
+        connected: false,
         menu: model::menu(),
         revision: 1,
     };
@@ -489,8 +494,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     loop {
         tokio::select! {
-            Some(tooltip) = status_rx.recv() => {
+            Some((tooltip, connected)) = status_rx.recv() => {
                 let mut s = state.lock().await;
+                if s.connected != connected {
+                    s.connected = connected;
+                    Tray::new_icon(&SignalEmitter::new(&connection, "/StatusNotifierItem")?).await?;
+                }
                 let menu = model::menu();
                 if s.menu != menu {
                     s.menu = menu; s.revision += 1;
@@ -555,6 +564,7 @@ mod tests {
     async fn menu_events() {
         let state = Arc::new(Mutex::new(State {
             tooltip: String::new(),
+            connected: false,
             menu: model::menu(),
             revision: 1,
         }));

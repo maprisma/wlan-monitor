@@ -2,6 +2,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 pub const APP_NAME: &str = "Maprisma WLAN Monitor";
 pub const ICON: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic";
+/// The radar without sweep and dot while not connected (installed under this name).
+pub const ICON_OFF: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic";
+
+/// The bar's radar, as the applet draws it: the full radar while connected.
+pub fn icon_for(connected: bool) -> &'static str {
+    if connected { ICON } else { ICON_OFF }
+}
 pub const WINDOW_BUS: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window";
 pub static CLOSE_WINDOW: AtomicBool = AtomicBool::new(false);
 pub struct WindowControl;
@@ -37,3 +44,13 @@ pub mod i18n;
 pub mod shot;
 pub mod corners;
 pub mod look;
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+    #[test]
+    fn tray_radar_follows_the_connection() {
+        assert_eq!(icon_for(true), ICON);
+        assert_eq!(icon_for(false), ICON_OFF);
+    }
+}

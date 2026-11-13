@@ -16,6 +16,8 @@ install -Dm755 target/release/maprisma-wlan-monitor "$bin/maprisma-wlan-monitor"
 install -Dm755 target/release/maprisma-wlan-monitor-tray "$bin/maprisma-wlan-monitor-tray"
 install -Dm644 scripts/wlan-monitor.py "$data/maprisma-wlan-monitor/scripts/wlan-monitor.py"
 install -Dm644 "data/icons/$id-symbolic.svg" "$data/icons/hicolor/scalable/apps/$id-symbolic.svg"
+# The tray's radar while not connected.
+install -Dm644 "data/icons/$id-off-symbolic.svg" "$data/icons/hicolor/scalable/apps/$id-off-symbolic.svg"
 # The panel starts applets without ~/.local/bin in PATH: the full path.
 install -d "$data/applications"
 # Quote one Exec argument, then escape the desktop-entry value layer.
