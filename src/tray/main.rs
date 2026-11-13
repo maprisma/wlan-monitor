@@ -1,5 +1,6 @@
 use maprisma_wlan_monitor::i18n::{self, tr};
 mod model;
+mod present;
 use maprisma_wlan_monitor::{APP_NAME, ICON, WINDOW_BUS, script_path};
 use model::Action;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -311,6 +312,9 @@ async fn window_action(
         if toggle {
             let proxy = zbus::Proxy::new(connection, owner.as_str(), "/Window", WINDOW_BUS).await?;
             proxy.call::<_, _, ()>("Close", &()).await?;
+        } else {
+            // "Open": a minimized or hidden window comes to the front.
+            present::present(connection, owner.as_str()).await;
         }
     } else {
         let executable = std::env::current_exe()?.with_file_name("maprisma-wlan-monitor");
