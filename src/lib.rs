@@ -5,7 +5,7 @@ pub const ICON: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic"
 /// The radar without sweep and dot while not connected (installed under this name).
 pub const ICON_OFF: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic";
 
-/// The full radar in the accent colour (ColorScheme-Highlight) while connected.
+/// The full radar in the theme's green (ColorScheme-PositiveText) while connected.
 pub const ICON_ACTIVE: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic";
 
 /// The tray's radar: coloured while connected, the plain rings while not.
