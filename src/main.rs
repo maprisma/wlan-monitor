@@ -1,5 +1,6 @@
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
 use maprisma_wlan_monitor::{corners, shot};
+use maprisma_wlan_monitor::look::Desktop;
 mod window_size;
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
@@ -2543,10 +2544,10 @@ impl cosmic::Application for Monitor {
                 }
             }
             Message::OpenWifiSettings => {
-                if self.window_mode {
-                    spawn_detached(&["systemsettings", "kcm_networkmanagement"]);
-                } else {
-                    spawn_detached(&["cosmic-settings", "wireless"]);
+                // The applet runs only in COSMIC's panel; a window on whichever desktop it is on.
+                let desktop = if self.window_mode { maprisma_wlan_monitor::look::desktop() } else { Desktop::Cosmic };
+                if let Some(argv) = wifi_settings_command(desktop, in_path) {
+                    spawn_detached(argv);
                 }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
@@ -2694,6 +2695,30 @@ async fn run_collector(output: &mut mpsc::Sender<Message>) {
     }
 }
 
+/// The Wi-Fi settings for this desktop: COSMIC's or Plasma's own; elsewhere (Hyprland) the first
+/// one installed: Omarchy's Wi-Fi launcher, NetworkManager's editor, Plasma's, COSMIC's.
+fn wifi_settings_command(desktop: Desktop, installed: impl Fn(&str) -> bool) -> Option<&'static [&'static str]> {
+    const COSMIC: &[&str] = &["cosmic-settings", "wireless"];
+    const KDE: &[&str] = &["systemsettings", "kcm_networkmanagement"];
+    const OMARCHY: &[&str] = &["omarchy-launch-wifi"];
+    const NM: &[&str] = &["nm-connection-editor"];
+    match desktop {
+        Desktop::Cosmic => Some(COSMIC),
+        Desktop::Kde => Some(KDE),
+        Desktop::Hyprland | Desktop::Other => [OMARCHY, NM, KDE, COSMIC].into_iter().find(|argv| installed(argv[0])),
+    }
+}
+
+/// An executable of this name in PATH.
+fn in_path(name: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|dir| {
+            std::fs::metadata(dir.join(name)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+    })
+}
+
 // Runs argv (never through a shell) without waiting for it; a thread reaps it.
 fn spawn_detached(argv: &[&str]) {
     let child = std::process::Command::new(argv[0])
@@ -2712,6 +2737,26 @@ fn spawn_detached(argv: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wifi_settings_follow_the_desktop() {
+        let all = |_: &str| true;
+        let none = |_: &str| false;
+        assert_eq!(wifi_settings_command(Desktop::Cosmic, none), Some(&["cosmic-settings", "wireless"][..]));
+        assert_eq!(wifi_settings_command(Desktop::Kde, none), Some(&["systemsettings", "kcm_networkmanagement"][..]));
+        assert_eq!(wifi_settings_command(Desktop::Hyprland, all), Some(&["omarchy-launch-wifi"][..]));
+        assert_eq!(
+            wifi_settings_command(Desktop::Hyprland, |n| n == "nm-connection-editor" || n == "systemsettings"),
+            Some(&["nm-connection-editor"][..])
+        );
+        assert_eq!(
+            wifi_settings_command(Desktop::Other, |n| n == "cosmic-settings"),
+            Some(&["cosmic-settings", "wireless"][..])
+        );
+        assert_eq!(wifi_settings_command(Desktop::Hyprland, none), None);
+        assert!(in_path("sh"));
+        assert!(!in_path("maprisma-no-such-program"));
+    }
 
     #[test]
     fn esc_closes_the_innermost_thing_first() {
