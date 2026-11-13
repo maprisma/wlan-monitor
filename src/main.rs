@@ -1338,8 +1338,8 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let active = self.active();
         let link = self.link();
         let size = self.core.applet.suggested_size(true).0 as f32;
-        // Active: the desktop's green, as every Maprisma bar icon (VPN shows in the window).
-        let color = active.then_some(Tone::Ok);
+        // Active: the theme accent, as every Maprisma bar icon (VPN shows in the window).
+        let color = active.then_some(Tone::Info);
         let alpha = if self.scanning() && self.pulse_dim {
             0.3
         } else if active || self.scanning() {

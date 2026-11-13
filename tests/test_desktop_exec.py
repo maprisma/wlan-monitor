@@ -34,7 +34,7 @@ class TrayIconTests(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[1]
         self.assertIn('"data/icons/$id-active-symbolic.svg"', (root / "install.sh").read_text())
         icon = (root / "data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic.svg").read_text()
-        self.assertIn(".ColorScheme-PositiveText { color:#27ae60; }", icon)
-        self.assertIn('class="ColorScheme-PositiveText"', icon)
+        self.assertIn(".ColorScheme-Highlight { color:#3daee9; }", icon)
+        self.assertIn('class="ColorScheme-Highlight"', icon)
         self.assertNotIn("ColorScheme-Text", icon)
         self.assertIn('"io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic"', (root / "src/lib.rs").read_text())

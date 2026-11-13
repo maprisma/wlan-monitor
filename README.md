@@ -4,7 +4,7 @@ See who is on your Wi-Fi from the COSMIC panel, in plain words. A native libcosm
 [Maprisma](https://github.com/maprisma) apps: the COSMIC port of the Omarchy widget, which stays as it is.
 English only.
 
-- **Panel icon:** a radar. Dim while disconnected, green when connected, blue while a VPN is active, with a thin
+- **Panel icon:** a radar. Dim while disconnected, the theme accent when connected, with a thin
   signal-quality line underneath coloured by level, and a red dot when a new device joined. It pulses while the
   subnet is being scanned. **Right click:** an immediate rescan.
 - **Panel (left click):**
@@ -132,7 +132,7 @@ collector itself, at its "panel closed" pace, so discovery and new-device alerts
 after the window closes (as with COSMIC's applet); it ends with the tray. Its tooltip
 refreshes connection, signal and VPN status every ten seconds using the collector's
 read helpers. The radar shows the connection, as the COSMIC applet does: the full radar in the
-theme's green (`…WlanMonitor-active-symbolic`) while a link is up, only its rings (`…WlanMonitor-off-symbolic`) while not connected.
+theme accent (`…WlanMonitor-active-symbolic`) while a link is up, only its rings (`…WlanMonitor-off-symbolic`) while not connected.
 
 Running `maprisma-wlan-monitor` without arguments still starts the COSMIC applet.
 The shared `scripts/` files are unchanged.
