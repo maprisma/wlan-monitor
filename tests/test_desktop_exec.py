@@ -29,3 +29,11 @@ class TrayIconTests(unittest.TestCase):
         self.assertTrue((root / "data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg").is_file())
         lib = (root / "src/lib.rs").read_text()
         self.assertIn('"io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic"', lib)
+
+    def test_active_radar_is_coloured(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        self.assertIn('"data/icons/$id-active-symbolic.svg"', (root / "install.sh").read_text())
+        icon = (root / "data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic.svg").read_text()
+        self.assertIn(".ColorScheme-Highlight", icon)
+        self.assertNotIn("ColorScheme-Text", icon)
+        self.assertIn('"io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic"', (root / "src/lib.rs").read_text())

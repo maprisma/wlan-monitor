@@ -5,9 +5,12 @@ pub const ICON: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic"
 /// The radar without sweep and dot while not connected (installed under this name).
 pub const ICON_OFF: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic";
 
-/// The bar's radar, as the applet draws it: the full radar while connected.
+/// The full radar in the accent colour (ColorScheme-Highlight) while connected.
+pub const ICON_ACTIVE: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor-active-symbolic";
+
+/// The tray's radar: coloured while connected, the plain rings while not.
 pub fn icon_for(connected: bool) -> &'static str {
-    if connected { ICON } else { ICON_OFF }
+    if connected { ICON_ACTIVE } else { ICON_OFF }
 }
 pub const WINDOW_BUS: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window";
 pub static CLOSE_WINDOW: AtomicBool = AtomicBool::new(false);
@@ -50,7 +53,7 @@ mod icon_tests {
     use super::*;
     #[test]
     fn tray_radar_follows_the_connection() {
-        assert_eq!(icon_for(true), ICON);
+        assert_eq!(icon_for(true), ICON_ACTIVE);
         assert_eq!(icon_for(false), ICON_OFF);
     }
 }
