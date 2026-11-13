@@ -72,6 +72,7 @@ fn system() -> cosmic::Theme {
 /// mode changes): keeps the new system theme and, in `--window` mode with our own theme in
 /// effect, sets it again on the new colours. The applet popup draws with [apply], which follows
 /// by itself.
+#[allow(dead_code)] // apps with a system_theme_update of their own don't call it
 pub fn system_theme_update<M: Send + 'static>(
     setting: &str,
     new_theme: &cosmic::cosmic_theme::Theme,

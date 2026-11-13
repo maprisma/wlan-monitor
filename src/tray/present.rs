@@ -5,6 +5,7 @@
 //! so the tray asks the compositor for the window of the process that owns the window's D-Bus
 //! name: Hyprland through `hyprctl dispatch`, KWin through a one-off KWin script (un-minimize,
 //! go to its virtual desktop, activate). Elsewhere (COSMIC uses the panel applet) nothing happens.
+//! The compositor is decided like look.rs's desktop (compositor_from).
 
 use std::time::Duration;
 
@@ -15,23 +16,61 @@ pub enum Compositor {
     Other,
 }
 
-/// From the session's variables: Hyprland's instance signature, else KDE in
-/// `XDG_CURRENT_DESKTOP` or Plasma's `KDE_FULL_SESSION`.
-pub fn compositor_from(hyprland_signature: &str, current_desktop: &str, kde_full_session: &str) -> Compositor {
-    if !hyprland_signature.trim().is_empty() {
+/// From the session's variables, as look.rs decides the desktop: `MAPRISMA_DESKTOP`, else
+/// `XDG_CURRENT_DESKTOP`; only without it the session's name, then Hyprland (only when its
+/// instance socket exists: a stale signature stays in the systemd user environment after a
+/// Hyprland session), then Plasma's `KDE_FULL_SESSION`.
+pub fn compositor_from(forced: &str, current_desktop: &str, session: &str, hyprland_socket: bool, kde_full_session: &str) -> Compositor {
+    let named = |value: &str, by_session: bool| {
+        value.split(':').find_map(|name| {
+            let name = name.rsplit('/').next().unwrap_or("").trim().trim_end_matches(".desktop").to_ascii_lowercase();
+            if name == "hyprland" || (by_session && name.starts_with("hyprland")) {
+                Some(Compositor::Hyprland)
+            } else if name == "kde" || (by_session && name.starts_with("plasma")) {
+                Some(Compositor::Kde)
+            } else if name == "cosmic" || name == "other" || (by_session && name.starts_with("cosmic-")) {
+                Some(Compositor::Other)
+            } else {
+                None
+            }
+        })
+    };
+    if let Some(found) = named(forced.trim(), false) {
+        return found;
+    }
+    if !current_desktop.trim().is_empty() {
+        return named(current_desktop, false).unwrap_or(Compositor::Other);
+    }
+    if let Some(found) = named(session, true) {
+        found
+    } else if hyprland_socket {
         Compositor::Hyprland
-    } else if current_desktop.split(':').any(|d| d.trim().eq_ignore_ascii_case("KDE"))
-        || kde_full_session.trim().eq_ignore_ascii_case("true")
-    {
+    } else if kde_full_session.trim().eq_ignore_ascii_case("true") {
         Compositor::Kde
     } else {
         Compositor::Other
     }
 }
 
+/// Whether Hyprland instance `signature` has its socket under `runtime_dir`.
+pub fn hyprland_socket_in(runtime_dir: &std::path::Path, signature: &str) -> bool {
+    let signature = signature.trim();
+    !signature.is_empty()
+        && signature.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        && !signature.starts_with('.')
+        && runtime_dir.join("hypr").join(signature).join(".socket.sock").exists()
+}
+
 fn compositor() -> Compositor {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
-    compositor_from(&var("HYPRLAND_INSTANCE_SIGNATURE"), &var("XDG_CURRENT_DESKTOP"), &var("KDE_FULL_SESSION"))
+    let runtime = var("XDG_RUNTIME_DIR");
+    compositor_from(
+        &var("MAPRISMA_DESKTOP"),
+        &var("XDG_CURRENT_DESKTOP"),
+        &format!("{}:{}", var("XDG_SESSION_DESKTOP"), var("DESKTOP_SESSION")),
+        !runtime.is_empty() && hyprland_socket_in(std::path::Path::new(&runtime), &var("HYPRLAND_INSTANCE_SIGNATURE")),
+        &var("KDE_FULL_SESSION"),
+    )
 }
 
 /// Hyprland 0.55+ (Lua dispatchers) first, then the classic dispatcher.
@@ -133,12 +172,37 @@ mod present_tests {
 
     #[test]
     fn which_compositor() {
-        assert_eq!(compositor_from("abc_123", "KDE", ""), Compositor::Hyprland);
-        assert_eq!(compositor_from("", "KDE", ""), Compositor::Kde);
-        assert_eq!(compositor_from("", "foo:kde", ""), Compositor::Kde);
-        assert_eq!(compositor_from("", "", "true"), Compositor::Kde);
-        assert_eq!(compositor_from("", "COSMIC", ""), Compositor::Other);
-        assert_eq!(compositor_from(" ", "", "false"), Compositor::Other);
+        // XDG_CURRENT_DESKTOP decides; a stale Hyprland socket in a KDE or COSMIC session doesn't.
+        assert_eq!(compositor_from("", "KDE", "", true, ""), Compositor::Kde);
+        assert_eq!(compositor_from("", "COSMIC", "hyprland", true, ""), Compositor::Other);
+        assert_eq!(compositor_from("", "Hyprland", "", false, ""), Compositor::Hyprland);
+        assert_eq!(compositor_from("", "foo:kde", "", false, ""), Compositor::Kde);
+        assert_eq!(compositor_from("", "ubuntu:GNOME", "", true, "true"), Compositor::Other);
+        // MAPRISMA_DESKTOP first.
+        assert_eq!(compositor_from("hyprland", "KDE", "", false, ""), Compositor::Hyprland);
+        assert_eq!(compositor_from("other", "KDE", "", false, ""), Compositor::Other);
+        assert_eq!(compositor_from("bogus", "KDE", "", false, ""), Compositor::Kde);
+        // Without XDG_CURRENT_DESKTOP: the session's name, then the socket, then KDE_FULL_SESSION.
+        assert_eq!(compositor_from("", "", "plasma:/usr/share/wayland-sessions/plasma.desktop", false, ""), Compositor::Kde);
+        assert_eq!(compositor_from("", "", "hyprland-uwsm:", false, ""), Compositor::Hyprland);
+        assert_eq!(compositor_from("", "", "COSMIC:", true, ""), Compositor::Other);
+        assert_eq!(compositor_from("", "", ":", true, ""), Compositor::Hyprland);
+        assert_eq!(compositor_from("", "", ":", false, "true"), Compositor::Kde);
+        assert_eq!(compositor_from("", " ", ":", false, "false"), Compositor::Other);
+    }
+
+    #[test]
+    fn hyprland_socket_must_exist() {
+        let dir = std::env::temp_dir().join(format!("present-hypr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("hypr/live")).unwrap();
+        std::fs::write(dir.join("hypr/live/.socket.sock"), b"").unwrap();
+        std::fs::create_dir_all(dir.join("hypr/stale")).unwrap();
+        assert!(hyprland_socket_in(&dir, "live"));
+        assert!(!hyprland_socket_in(&dir, "stale"));
+        assert!(!hyprland_socket_in(&dir, ""));
+        assert!(!hyprland_socket_in(&dir, "../hypr/live"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
