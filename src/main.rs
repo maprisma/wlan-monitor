@@ -120,6 +120,8 @@ enum EscStep {
     Menus,
     /// Clear the device search.
     Filter,
+    /// Leave the settings page.
+    Back,
     /// Close the window (`--window`) or the popup.
     Close,
     Nothing,
@@ -134,6 +136,7 @@ struct EscState {
     fritz_form: bool,
     menus: bool,
     filter: bool,
+    settings: bool,
 }
 
 fn esc_step(state: EscState) -> EscStep {
@@ -149,6 +152,8 @@ fn esc_step(state: EscState) -> EscStep {
         EscStep::Menus
     } else if state.filter {
         EscStep::Filter
+    } else if state.settings {
+        EscStep::Back
     } else {
         EscStep::Close
     }
@@ -739,6 +744,8 @@ struct Monitor<const WINDOW_MODE: bool = false> {
     corners_open: bool,
     setting_error: bool,
     resize: window_size::Debounce,
+    /// The settings page (Language, F12, Corners) is shown instead of the network.
+    settings_open: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -763,6 +770,7 @@ enum Message {
     FoldAll(bool, Vec<String>),
     ToggleChooser,
     ToggleLanguage,
+    ToggleSettings,
     Language(String),
     ToggleDevice(String),
     StartRename(String),
@@ -1401,6 +1409,12 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     .class(track(pill_radius())),
             );
         }
+        // Settings at the header's right end, as in Maprisma Launcher.
+        hero = hero.push(cosmic::widget::tooltip(
+            button::icon(icon::from_name("emblem-system-symbolic").symbolic(true)).on_press(Message::ToggleSettings),
+            text::body(tr("Settings")),
+            cosmic::widget::tooltip::Position::Bottom,
+        ));
         hero.into()
     }
 
@@ -2066,39 +2080,71 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     .on_toggle(Message::Alerts),
             );
         }
-        footer = footer.push(button::text(tr("Language")).on_press(Message::ToggleLanguage));
-        if self.language_open {
-            let current = i18n::setting();
-            let mut languages = Row::new().spacing(8);
-            for (code, label) in i18n::choices() {
-                let selected = current == code;
-                let button = if selected { button::suggested(label) } else { button::text(label) };
-                languages = languages.push(button.on_press(Message::Language(code)));
-            }
-            footer = footer.push(languages.wrap());
-        }
-        if self.language_error { footer = footer.push(dim(tr("Could not save the language setting."))); }
-        footer = footer.push(toggler(self.shot_key).label(tr("F12 saves a screenshot").to_string()).on_toggle(Message::SetShotKey));
-        footer = footer.push(button::text(tr("Corners")).on_press(Message::ToggleCorners));
-        if self.corners_open {
-            let desktop = corners::desktop_radius().round().to_string();
-            let mut choices = Row::new().spacing(8);
-            for (choice, label) in [
-                ("desktop", trf("Like the desktop ({0} px)", &[desktop])),
-                ("slight", trf("Slightly rounded ({0} px)", &["6".into()])),
-                ("rounded", trf("Rounded ({0} px)", &["12".into()])),
-                ("square", tr("Square").to_string()),
-            ] {
-                let button = if self.corners == choice { button::suggested(label) } else { button::text(label) };
-                choices = choices.push(button.on_press(Message::Corners(choice.into())));
-            }
-            footer = footer.push(choices.wrap());
-        }
         if self.setting_error { footer = footer.push(dim(tr("Could not save the setting."))); }
         footer.into()
     }
 
+    /// Settings (as Maprisma Launcher's page): ← Back and the title, then one row per setting,
+    /// words at the left and the control at the right; a list opens under its row.
+    fn settings_page(&self) -> Element<'_, Message> {
+        let header = row![
+            button::text(tr("Back")).leading_icon(icon::from_name("go-previous-symbolic").size(16)).on_press(Message::ToggleSettings),
+            space::horizontal().width(Length::Fill),
+            dim(tr("Settings").to_uppercase()),
+        ]
+        .align_y(Alignment::Center);
+        let choice = |label: String, open: bool, message: Message| -> Element<'_, Message> {
+            button::text(label)
+                .trailing_icon(icon::from_name(if open { "pan-up-symbolic" } else { "pan-down-symbolic" }).size(16))
+                .on_press(message)
+                .into()
+        };
+        let setting = |label: &'static str, control: Element<'static, Message>| -> Element<'static, Message> {
+            row![text::body(label), space::horizontal().width(Length::Fill), control].spacing(12).align_y(Alignment::Center).into()
+        };
+        let item = |label: String, message: Message| -> Element<'static, Message> {
+            button::custom(text::body(label)).padding([6, 12]).width(Length::Fill).class(theme::Button::MenuItem).on_press(message).into()
+        };
+        let current_code = i18n::setting();
+        let options = i18n::choices();
+        let current = options.iter().find(|(c, _)| *c == current_code).map(|(_, l)| l.clone()).unwrap_or_default();
+        let mut page = column![header, divider::horizontal::default()].spacing(8);
+        page = page.push(setting(tr("Language"), choice(current, self.language_open, Message::ToggleLanguage)));
+        if self.language_open {
+            let mut list = column![];
+            for (code, label) in options {
+                let label = if code == current_code { format!("✓ {label}") } else { label };
+                list = list.push(item(label, Message::Language(code)));
+            }
+            page = page.push(list);
+        }
+        page = page.push(setting(tr("F12 saves a screenshot"), toggler(self.shot_key).on_toggle(Message::SetShotKey).into()));
+        let desktop = corners::desktop_radius().round().to_string();
+        let corner_choices = [
+            ("desktop", trf("Like the desktop ({0} px)", &[desktop])),
+            ("slight", trf("Slightly rounded ({0} px)", &["6".into()])),
+            ("rounded", trf("Rounded ({0} px)", &["12".into()])),
+            ("square", tr("Square").to_string()),
+        ];
+        let current = corner_choices.iter().find(|(c, _)| *c == self.corners).map(|(_, l)| l.clone()).unwrap_or_default();
+        page = page.push(setting(tr("Corners"), choice(current, self.corners_open, Message::ToggleCorners)));
+        if self.corners_open {
+            let mut list = column![];
+            for (choice, label) in corner_choices {
+                let label = if self.corners == choice { format!("✓ {label}") } else { label };
+                list = list.push(item(label, Message::Corners(choice.into())));
+            }
+            page = page.push(list);
+        }
+        if self.language_error { page = page.push(dim(tr("Could not save the language setting."))); }
+        if self.setting_error { page = page.push(dim(tr("Could not save the setting."))); }
+        page.into()
+    }
+
     fn panel(&self) -> Element<'_, Message> {
+        if self.settings_open {
+            return self.settings_page();
+        }
         let mut content = column![self.hero(), self.tabs()].spacing(12);
         for item in self.notices() {
             content = content.push(item);
@@ -2224,6 +2270,8 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
         let mut core = core;
         maprisma_wlan_monitor::look::solid(&mut core);
         let mut app = Self { core, window_mode, shot_key: shot_key_setting(), corners: corners_setting(), ..Default::default() };
+        // Debug builds only: start on the settings page (for off-screen screenshots).
+        app.settings_open = cfg!(debug_assertions) && std::env::var("MAPRISMA_SHOT_PAGE").as_deref() == Ok("settings");
         if window_mode {
             app.resize = window_size::Debounce::new(window_start_size());
             // Hyprland: back where the user left it (the tray rule first puts it under the bar).
@@ -2297,6 +2345,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ToggleLanguage => { self.language_open = !self.language_open; self.corners_open = false; }
+            Message::ToggleSettings => {
+                self.settings_open = !self.settings_open;
+                self.language_open = false;
+                self.corners_open = false;
+            }
             Message::ShotKey(id) => {
                 let shown = if self.window_mode { self.core.main_window_id() == Some(id) } else { self.popup == Some(id) };
                 if self.shot_key && shown && self.shot == shot::Phase::Idle {
@@ -2334,12 +2387,14 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                     fritz_form: self.fritz_form_open,
                     menus: self.language_open || self.corners_open || self.chooser,
                     filter: !self.filter.is_empty(),
+                    settings: self.settings_open,
                 }) {
                     EscStep::Note => return self.finish_note(false),
                     EscStep::Rename => return self.update(Message::CancelRename),
                     EscStep::FritzForm => self.close_fritz_form(),
                     EscStep::Menus => { self.language_open = false; self.corners_open = false; self.chooser = false; }
                     EscStep::Filter => self.filter.clear(),
+                    EscStep::Back => self.settings_open = false,
                     // Like the window's own close (the tray keeps running); the popup like a click on the icon.
                     EscStep::Close if self.window_mode => return self.update(Message::CloseRequested(id)),
                     EscStep::Close => return self.update(Message::TogglePopup),
@@ -2787,13 +2842,17 @@ mod tests {
 
     #[test]
     fn esc_closes_the_innermost_thing_first() {
-        let all = EscState { shown: true, note: true, rename: true, fritz_form: true, menus: true, filter: true };
+        let all = EscState { shown: true, note: true, rename: true, fritz_form: true, menus: true, filter: true, settings: true };
         assert_eq!(esc_step(all), EscStep::Note);
         assert_eq!(esc_step(EscState { note: false, ..all }), EscStep::Rename);
         assert_eq!(esc_step(EscState { note: false, rename: false, ..all }), EscStep::FritzForm);
         let menus = EscState { shown: true, menus: true, filter: true, ..Default::default() };
         assert_eq!(esc_step(menus), EscStep::Menus);
         assert_eq!(esc_step(EscState { menus: false, ..menus }), EscStep::Filter);
+        // The settings page: an open list first, then Back, then close.
+        let settings = EscState { shown: true, settings: true, menus: true, ..Default::default() };
+        assert_eq!(esc_step(settings), EscStep::Menus);
+        assert_eq!(esc_step(EscState { menus: false, ..settings }), EscStep::Back);
         assert_eq!(esc_step(EscState { shown: true, ..Default::default() }), EscStep::Close);
         // Not from the window or the open popup (e.g. the panel button): nothing.
         assert_eq!(esc_step(EscState { shown: false, ..all }), EscStep::Nothing);
