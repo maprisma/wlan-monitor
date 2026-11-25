@@ -247,7 +247,15 @@
     "Slightly rounded ({0} px)": "Slightly rounded ({0} px)",
     "Rounded ({0} px)": "Rounded ({0} px)",
     "Square": "Square",
-    "Could not save the setting.": "Could not save the setting."
+    "Could not save the setting.": "Could not save the setting.",
+    "App skin": "App skin",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Visual accent for cards and borders; Native keeps your desktop theme untouched.",
+    "Native": "Native",
+    "Synthwave": "Synthwave",
+    "Cozy": "Cozy",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "de": {
     "Settings": "Einstellungen",
@@ -497,7 +505,15 @@
     "Slightly rounded ({0} px)": "Leicht abgerundet ({0} px)",
     "Rounded ({0} px)": "Abgerundet ({0} px)",
     "Square": "Eckig",
-    "Could not save the setting.": "Die Einstellung konnte nicht gespeichert werden."
+    "Could not save the setting.": "Die Einstellung konnte nicht gespeichert werden.",
+    "App skin": "App-Design",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Visueller Akzent für Karten und Rahmen; Nativ lässt dein Desktop-Design unverändert.",
+    "Native": "Nativ",
+    "Synthwave": "Synthwave",
+    "Cozy": "Gemütlich",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "fr": {
     "Settings": "Réglages",
@@ -747,7 +763,15 @@
     "Slightly rounded ({0} px)": "Légèrement arrondis ({0} px)",
     "Rounded ({0} px)": "Arrondis ({0} px)",
     "Square": "Carrés",
-    "Could not save the setting.": "Le réglage n'a pas pu être enregistré."
+    "Could not save the setting.": "Le réglage n'a pas pu être enregistré.",
+    "App skin": "Apparence",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Accent visuel pour les cartes et bordures ; Natif conserve exactement le thème du bureau.",
+    "Native": "Natif",
+    "Synthwave": "Synthwave",
+    "Cozy": "Cosy",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "es": {
     "Settings": "Ajustes",
@@ -997,7 +1021,15 @@
     "Slightly rounded ({0} px)": "Ligeramente redondeadas ({0} px)",
     "Rounded ({0} px)": "Redondeadas ({0} px)",
     "Square": "Rectas",
-    "Could not save the setting.": "No se pudo guardar el ajuste."
+    "Could not save the setting.": "No se pudo guardar el ajuste.",
+    "App skin": "Estilo visual",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Acento visual para tarjetas y bordes; Nativo mantiene intacto el tema del escritorio.",
+    "Native": "Nativo",
+    "Synthwave": "Synthwave",
+    "Cozy": "Acogedor",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "it": {
     "Settings": "Impostazioni",
@@ -1247,7 +1279,15 @@
     "Slightly rounded ({0} px)": "Leggermente arrotondati ({0} px)",
     "Rounded ({0} px)": "Arrotondati ({0} px)",
     "Square": "Squadrati",
-    "Could not save the setting.": "Impossibile salvare l'impostazione."
+    "Could not save the setting.": "Impossibile salvare l'impostazione.",
+    "App skin": "Stile app",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Accento visivo per schede e bordi; Nativo mantiene intatto il tema del desktop.",
+    "Native": "Nativo",
+    "Synthwave": "Synthwave",
+    "Cozy": "Accogliente",
+    "Terminal": "Terminale",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "pt": {
     "Settings": "Configurações",
@@ -1497,7 +1537,15 @@
     "Slightly rounded ({0} px)": "Levemente arredondados ({0} px)",
     "Rounded ({0} px)": "Arredondados ({0} px)",
     "Square": "Retos",
-    "Could not save the setting.": "Não foi possível guardar a definição."
+    "Could not save the setting.": "Não foi possível guardar a definição.",
+    "App skin": "Estilo da app",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Destaque visual para cartões e contornos; Nativo mantém intacto o tema do ambiente de trabalho.",
+    "Native": "Nativo",
+    "Synthwave": "Synthwave",
+    "Cozy": "Acolhedor",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "nl": {
     "Settings": "Instellingen",
@@ -1747,7 +1795,15 @@
     "Slightly rounded ({0} px)": "Licht afgerond ({0} px)",
     "Rounded ({0} px)": "Afgerond ({0} px)",
     "Square": "Hoekig",
-    "Could not save the setting.": "De instelling kon niet worden bewaard."
+    "Could not save the setting.": "De instelling kon niet worden bewaard.",
+    "App skin": "App-stijl",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Visueel accent voor kaarten en randen; Natief laat je bureaubladthema ongemoeid.",
+    "Native": "Natief",
+    "Synthwave": "Synthwave",
+    "Cozy": "Gezellig",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   },
   "pl": {
     "Settings": "Ustawienia",
@@ -1997,6 +2053,14 @@
     "Slightly rounded ({0} px)": "Lekko zaokrąglone ({0} px)",
     "Rounded ({0} px)": "Zaokrąglone ({0} px)",
     "Square": "Proste",
-    "Could not save the setting.": "Nie udało się zapisać ustawienia."
+    "Could not save the setting.": "Nie udało się zapisać ustawienia.",
+    "App skin": "Skórka aplikacji",
+    "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Wizualny akcent kart i obramowań; Natywny pozostawia motyw pulpitu bez zmian.",
+    "Native": "Natywny",
+    "Synthwave": "Synthwave",
+    "Cozy": "Przytulny",
+    "Terminal": "Terminal",
+    "Disco": "Disco",
+    "Zen": "Zen"
   }
 }

@@ -25,5 +25,13 @@
   "Slightly rounded ({0} px)": "Licht afgerond ({0} px)",
   "Rounded ({0} px)": "Afgerond ({0} px)",
   "Square": "Hoekig",
-  "Could not save the setting.": "De instelling kon niet worden bewaard."
+  "Could not save the setting.": "De instelling kon niet worden bewaard.",
+  "App skin": "App-stijl",
+  "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Visueel accent voor kaarten en randen; Natief laat je bureaubladthema ongemoeid.",
+  "Native": "Natief",
+  "Synthwave": "Synthwave",
+  "Cozy": "Gezellig",
+  "Terminal": "Terminal",
+  "Disco": "Disco",
+  "Zen": "Zen"
 }

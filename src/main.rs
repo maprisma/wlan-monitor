@@ -1,6 +1,9 @@
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
-use maprisma_wlan_monitor::{corners, shot};
 use maprisma_wlan_monitor::look::Desktop;
+use maprisma_wlan_monitor::skin::{
+    SKIN_KEY, SKINS, active_theme, normalize_skin, skin_label, skin_style,
+};
+use maprisma_wlan_monitor::{corners, shot};
 mod window_size;
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
@@ -28,11 +31,15 @@ use cosmic::iced::futures::SinkExt;
 use cosmic::iced::futures::channel::mpsc;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::destroy_popup;
 use cosmic::iced::widget::{Row, container as iced_container, svg as iced_svg, text as iced_text};
-use cosmic::iced::{Alignment, Background, Border, Color, Length, Rectangle, Subscription, stream, window};
-use cosmic::widget::rectangle_tracker::{RectangleTracker, RectangleUpdate, rectangle_tracker_subscription};
+use cosmic::iced::{
+    Alignment, Background, Border, Color, Length, Rectangle, Subscription, stream, window,
+};
+use cosmic::widget::rectangle_tracker::{
+    RectangleTracker, RectangleUpdate, rectangle_tracker_subscription,
+};
 use cosmic::widget::{
-    Id, autosize, button, column, container, divider, icon, mouse_area, row, scrollable, secure_input, space, svg,
-    text, text_input, toggler,
+    Id, autosize, button, column, container, divider, icon, mouse_area, row, scrollable,
+    secure_input, space, svg, text, text_input, toggler,
 };
 use cosmic::{ApplicationExt, Element, theme};
 use maprisma_wlan_monitor::{APP_NAME, CLOSE_WINDOW, WINDOW_BUS, WindowControl, script_path};
@@ -50,8 +57,10 @@ static FRITZ_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-
 static NOTE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-shot-note"));
 // F12 pictures go to ~/Pictures/<this>/ (the app's name, the same in every language).
 const SHOT_FOLDER: &str = APP_NAME;
-const RADAR: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
-const RADAR_OFF: &[u8] = include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg");
+const RADAR: &[u8] =
+    include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
+const RADAR_OFF: &[u8] =
+    include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg");
 
 const RESTART_DELAY: Duration = Duration::from_secs(5); // before a collector that exited starts again
 const POPUP_WIDTH: f32 = 440.0;
@@ -65,7 +74,15 @@ const FLASH: Duration = Duration::from_millis(1500);
 /// gets the same toggle.
 async fn close_running_window(bus: &str) {
     if let Ok(connection) = zbus::Connection::session().await {
-        let _ = connection.call_method(Some(bus), "/Window", Some("io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window"), "Close", &()).await;
+        let _ = connection
+            .call_method(
+                Some(bus),
+                "/Window",
+                Some("io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window"),
+                "Close",
+                &(),
+            )
+            .await;
     }
 }
 
@@ -77,8 +94,12 @@ fn main() -> cosmic::iced::Result {
     let runtime = tokio::runtime::Runtime::new().expect("D-Bus runtime");
     let connection = runtime.block_on(async {
         let connection = zbus::connection::Builder::session()?
-            .serve_at("/Window", WindowControl)?.build().await?;
-        connection.request_name_with_flags(WINDOW_BUS, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await?;
+            .serve_at("/Window", WindowControl)?
+            .build()
+            .await?;
+        connection
+            .request_name_with_flags(WINDOW_BUS, zbus::fdo::RequestNameFlags::DoNotQueue.into())
+            .await?;
         Ok::<_, zbus::Error>(connection)
     });
     let _connection = match connection {
@@ -93,8 +114,12 @@ fn main() -> cosmic::iced::Result {
         }
     };
     cosmic::app::run::<Monitor<true>>(
-        cosmic::app::Settings::default().default_font(maprisma_wlan_monitor::look::default_font())
-            .size({ let (width, height) = window_start_size(); cosmic::iced::Size::new(width, height) })
+        cosmic::app::Settings::default()
+            .default_font(maprisma_wlan_monitor::look::default_font())
+            .size({
+                let (width, height) = window_start_size();
+                cosmic::iced::Size::new(width, height)
+            })
             .resizable(Some(8.0))
             .transparent(false)
             .is_daemon(false),
@@ -104,7 +129,8 @@ fn main() -> cosmic::iced::Result {
 
 // The `--window` size: the one the user left it at (layout rule 5a), else the popup's.
 fn window_start_size() -> window_size::Size {
-    window_size::parse(read_pref(window_size::KEY).as_ref()).unwrap_or((POPUP_WIDTH, POPUP_MAX_HEIGHT))
+    window_size::parse(read_pref(window_size::KEY).as_ref())
+        .unwrap_or((POPUP_WIDTH, POPUP_MAX_HEIGHT))
 }
 
 /// What Esc does (layout rule 5a): the innermost open thing first, then the window or popup.
@@ -209,7 +235,10 @@ fn signal_word(quality: f64) -> &'static str {
 }
 
 fn num(value: &Value, key: &str) -> Option<f64> {
-    value.get(key).and_then(Value::as_f64).filter(|v| v.is_finite())
+    value
+        .get(key)
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite())
 }
 
 fn n(value: &Value, key: &str) -> f64 {
@@ -225,7 +254,10 @@ fn b(value: &Value, key: &str) -> bool {
 }
 
 fn arr<'a>(value: &'a Value, key: &str) -> &'a [Value] {
-    value.get(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
 }
 
 // A number or a string as text ("36", "866"), empty for null.
@@ -239,17 +271,25 @@ fn shown(value: &Value, key: &str) -> String {
 
 fn is_ipv4(ip: &str) -> bool {
     let parts: Vec<&str> = ip.split('.').collect();
-    parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|c| c.is_ascii_digit()))
+    parts.len() == 4
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|c| c.is_ascii_digit()))
 }
 
 // The collector only builds http(s) URLs for private IPv4 literals; check the
 // shape again here (http(s)://a.b.c.d[:port]/path) before handing it on.
 fn is_web_url(url: &str) -> bool {
-    let rest = match url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")) {
+    let rest = match url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+    {
         Some(rest) => rest,
         None => return false,
     };
-    let Some(slash) = rest.find('/') else { return false };
+    let Some(slash) = rest.find('/') else {
+        return false;
+    };
     let (host, path) = rest.split_at(slash);
     let (ip, port) = match host.split_once(':') {
         Some((ip, port)) => (ip, Some(port)),
@@ -263,7 +303,10 @@ fn is_web_url(url: &str) -> bool {
     {
         return false;
     }
-    path.len() <= 101 && path.bytes().all(|c| c.is_ascii_alphanumeric() || b"._~/-".contains(&c))
+    path.len() <= 101
+        && path
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._~/-".contains(&c))
 }
 
 fn kind_icon(kind: &str) -> &'static str {
@@ -308,7 +351,11 @@ fn kind_label(kind: &str) -> &'static str {
 }
 
 fn device_kind_label(dev: &Value) -> &'static str {
-    if s(dev, "kind") == "router" && !b(dev, "is_gateway") { tr("Repeater / access point") } else { kind_label(s(dev, "kind")) }
+    if s(dev, "kind") == "router" && !b(dev, "is_gateway") {
+        tr("Repeater / access point")
+    } else {
+        kind_label(s(dev, "kind"))
+    }
 }
 
 // Group id → (title, icon).
@@ -323,7 +370,10 @@ fn group_info(id: &str) -> (&'static str, &'static str) {
         "smarthome" => (tr("Smart home"), "user-home-symbolic"),
         "office" => (tr("Printers & storage"), "printer-symbolic"),
         "network" => (tr("Network & mesh"), "network-workgroup-symbolic"),
-        "none" => (tr("Not reported by the FRITZ!Box"), "dialog-question-symbolic"),
+        "none" => (
+            tr("Not reported by the FRITZ!Box"),
+            "dialog-question-symbolic",
+        ),
         "gsix" => ("6 GHz", "network-wireless-symbolic"),
         "gfive" => ("5 GHz", "network-wireless-symbolic"),
         "gtwo" => ("2.4 GHz", "network-wireless-symbolic"),
@@ -334,10 +384,37 @@ fn group_info(id: &str) -> (&'static str, &'static str) {
     }
 }
 
-const PLATFORM_ORDER: &[&str] =
-    &["favourites", "apple", "android", "mobile", "computers", "media", "smarthome", "office", "network", "other"];
-const TYPE_ORDER: &[&str] = &["favourites", "mobile", "computers", "media", "smarthome", "office", "network", "other"];
-const BAND_ORDER: &[&str] = &["favourites", "gsix", "gfive", "gtwo", "glan", "gother", "gsleep"];
+const PLATFORM_ORDER: &[&str] = &[
+    "favourites",
+    "apple",
+    "android",
+    "mobile",
+    "computers",
+    "media",
+    "smarthome",
+    "office",
+    "network",
+    "other",
+];
+const TYPE_ORDER: &[&str] = &[
+    "favourites",
+    "mobile",
+    "computers",
+    "media",
+    "smarthome",
+    "office",
+    "network",
+    "other",
+];
+const BAND_ORDER: &[&str] = &[
+    "favourites",
+    "gsix",
+    "gfive",
+    "gtwo",
+    "glan",
+    "gother",
+    "gsleep",
+];
 
 fn order_for(mode: &str) -> &'static [&'static str] {
     match mode {
@@ -427,12 +504,17 @@ fn status_word(dev: &Value) -> String {
         return tr("idle").into();
     }
     let ago = ago_text(dev);
-    if ago.is_empty() { tr("sleeping").into() } else { format!("{} · {ago}", tr("sleeping")) }
+    if ago.is_empty() {
+        tr("sleeping").into()
+    } else {
+        format!("{} · {ago}", tr("sleeping"))
+    }
 }
 
 fn status_explain(dev: &Value) -> String {
     if b(dev, "is_gateway") {
-        return tr("Your router: it connects all devices here to each other and to the internet.").into();
+        return tr("Your router: it connects all devices here to each other and to the internet.")
+            .into();
     }
     if b(dev, "is_self") {
         return tr("This computer.").into();
@@ -446,18 +528,33 @@ fn status_explain(dev: &Value) -> String {
     }
     let ago = ago_text(dev);
     format!(
-        "{} {}", tr("Sleeping: not answering right now. Phones and tablets do this to save battery and still count as connected."),
-        if ago.is_empty() { tr("Known from your router's address list.").to_string() } else { trf("Last seen {0}.", &[ago]) }
+        "{} {}",
+        tr(
+            "Sleeping: not answering right now. Phones and tablets do this to save battery and still count as connected."
+        ),
+        if ago.is_empty() {
+            tr("Known from your router's address list.").to_string()
+        } else {
+            trf("Last seen {0}.", &[ago])
+        }
     )
 }
 
 fn device_key(dev: &Value) -> String {
     let mac = s(dev, "mac");
-    if mac.is_empty() { s(dev, "ip").to_string() } else { mac.to_string() }
+    if mac.is_empty() {
+        s(dev, "ip").to_string()
+    } else {
+        mac.to_string()
+    }
 }
 
 fn fritz_message(code: &str, args: &[Value]) -> String {
-    let arg = |i: usize| args.get(i).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).unwrap_or_default();
+    let arg = |i: usize| {
+        args.get(i)
+            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
+            .unwrap_or_default()
+    };
     match code {
         "fzConnecting" => tr("Connecting to the FRITZ!Box…").into(),
         "fzPaused" => tr("Paused while the VPN blocks the home network.").into(),
@@ -492,23 +589,36 @@ const FRITZ_HELP: &str = "• There is no fixed default user name.\n• FRITZ!OS
 fn dim_text(theme: &cosmic::Theme) -> iced_text::Style {
     let mut color = Color::from(theme.cosmic().on_bg_color());
     color.a = 0.6;
-    iced_text::Style { color: Some(color), ..Default::default() }
+    iced_text::Style {
+        color: Some(color),
+        ..Default::default()
+    }
 }
 
 fn accent_text(theme: &cosmic::Theme) -> iced_text::Style {
-    iced_text::Style { color: Some(Color::from(theme.cosmic().accent_text_color())), ..Default::default() }
+    iced_text::Style {
+        color: Some(Color::from(theme.cosmic().accent_text_color())),
+        ..Default::default()
+    }
 }
 
 fn warn_text(theme: &cosmic::Theme) -> iced_text::Style {
-    iced_text::Style { color: Some(Tone::Warn.color(theme)), ..Default::default() }
+    iced_text::Style {
+        color: Some(Tone::Warn.color(theme)),
+        ..Default::default()
+    }
 }
 
 fn dim<'a>(content: impl Into<std::borrow::Cow<'a, str>> + 'a) -> Element<'a, Message> {
-    text::caption(content).class(theme::Text::Custom(dim_text)).into()
+    text::caption(content)
+        .class(theme::Text::Custom(dim_text))
+        .into()
 }
 
 fn accent<'a>(content: impl Into<std::borrow::Cow<'a, str>> + 'a) -> Element<'a, Message> {
-    text::caption(content).class(theme::Text::Custom(accent_text)).into()
+    text::caption(content)
+        .class(theme::Text::Custom(accent_text))
+        .into()
 }
 
 // Settings › Corners: small parts (tracks, fills, swatches, signal bars), controls (notice boxes,
@@ -521,22 +631,115 @@ fn control() -> f32 {
     corners::now().control
 }
 
-fn pill_radius() -> f32 {
-    corners::now().pill
-}
-
 fn fill(color: Color, radius: f32) -> theme::Container<'static> {
     theme::Container::custom(move |_| iced_container::Style {
         background: Some(Background::Color(color)),
-        border: Border { radius: radius.into(), ..Default::default() },
+        border: Border {
+            radius: radius.into(),
+            ..Default::default()
+        },
         ..Default::default()
     })
+}
+
+fn with_alpha(mut color: Color, alpha: f32) -> Color {
+    color.a = alpha;
+    color
+}
+
+fn card_style(skin: &str) -> theme::Container<'static> {
+    let style = skin_style(skin);
+    theme::Container::custom(move |theme: &cosmic::Theme| {
+        let base = Color::from(theme.cosmic().on_bg_color());
+        let (bg, edge, width) = match style {
+            Some(s) => (
+                with_alpha(s.bg_tint, 0.28),
+                with_alpha(s.border_tint, 0.48),
+                s.border_width,
+            ),
+            None => (with_alpha(base, 0.05), with_alpha(base, 0.10), 1.0),
+        };
+        iced_container::Style {
+            background: Some(Background::Color(bg)),
+            border: Border {
+                radius: corners::now().radius.into(),
+                width,
+                color: edge,
+            },
+            ..Default::default()
+        }
+    })
+}
+
+fn sub_card_style(skin: &str) -> theme::Container<'static> {
+    let style = skin_style(skin);
+    theme::Container::custom(move |theme: &cosmic::Theme| {
+        let base = Color::from(theme.cosmic().on_bg_color());
+        let (bg, edge) = match style {
+            Some(s) => (with_alpha(s.bg_tint, 0.22), with_alpha(s.border_tint, 0.40)),
+            None => (with_alpha(base, 0.04), with_alpha(base, 0.12)),
+        };
+        iced_container::Style {
+            background: Some(Background::Color(bg)),
+            border: Border {
+                radius: corners::now().small.into(),
+                width: 1.0,
+                color: edge,
+            },
+            ..Default::default()
+        }
+    })
+}
+
+fn pill_style(skin: &str) -> theme::Container<'static> {
+    let style = skin_style(skin);
+    theme::Container::custom(move |theme: &cosmic::Theme| match style {
+        Some(s) => iced_container::Style {
+            background: Some(Background::Color(with_alpha(s.accent, 0.24))),
+            border: Border {
+                radius: corners::now().pill.into(),
+                width: 1.0,
+                color: with_alpha(s.border_tint, 0.48),
+            },
+            ..Default::default()
+        },
+        None => iced_container::Style {
+            background: Some(Background::Color(with_alpha(
+                Color::from(theme.cosmic().on_bg_color()),
+                0.12,
+            ))),
+            border: Border {
+                radius: corners::now().pill.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    })
+}
+
+fn skin_swatch(color: Color) -> Element<'static, Message> {
+    container(space::horizontal())
+        .width(Length::Fixed(10.0))
+        .height(Length::Fixed(10.0))
+        .class(fill(color, 5.0))
+        .into()
+}
+
+fn new_badge(skin: &str) -> Element<'static, Message> {
+    if skin_style(skin).is_some() {
+        container(accent(tr("NEW"))).padding([2, 6]).class(pill_style(skin)).into()
+    } else {
+        accent(tr("NEW"))
+    }
 }
 
 fn tone_fill(tone: Tone, radius: f32) -> theme::Container<'static> {
     theme::Container::custom(move |theme: &cosmic::Theme| iced_container::Style {
         background: Some(Background::Color(tone.color(theme))),
-        border: Border { radius: radius.into(), ..Default::default() },
+        border: Border {
+            radius: radius.into(),
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -547,7 +750,10 @@ fn track(radius: f32) -> theme::Container<'static> {
         color.a = 0.12;
         iced_container::Style {
             background: Some(Background::Color(color)),
-            border: Border { radius: radius.into(), ..Default::default() },
+            border: Border {
+                radius: radius.into(),
+                ..Default::default()
+            },
             ..Default::default()
         }
     })
@@ -559,7 +765,10 @@ fn neutral_fill(radius: f32) -> theme::Container<'static> {
         color.a = 0.45;
         iced_container::Style {
             background: Some(Background::Color(color)),
-            border: Border { radius: radius.into(), ..Default::default() },
+            border: Border {
+                radius: radius.into(),
+                ..Default::default()
+            },
             ..Default::default()
         }
     })
@@ -575,7 +784,11 @@ fn notice(tone: Tone) -> theme::Container<'static> {
         edge.a = 0.5;
         iced_container::Style {
             background: Some(Background::Color(back)),
-            border: Border { radius: control().into(), width: 1.0, color: edge },
+            border: Border {
+                radius: control().into(),
+                width: 1.0,
+                color: edge,
+            },
             ..Default::default()
         }
     })
@@ -588,7 +801,10 @@ fn selected_row() -> theme::Container<'static> {
         color.a = 0.06;
         iced_container::Style {
             background: Some(Background::Color(color)),
-            border: Border { radius: control().into(), ..Default::default() },
+            border: Border {
+                radius: control().into(),
+                ..Default::default()
+            },
             ..Default::default()
         }
     })
@@ -599,18 +815,37 @@ fn bar<'a>(fraction: f64, class: theme::Container<'static>, height: f32) -> Elem
     let part = (fraction.clamp(0.0, 1.0) * 1000.0).round() as u16;
     let mut line = Row::new().width(Length::Fill).height(Length::Fixed(height));
     if part > 0 {
-        line = line.push(container(space::horizontal()).width(Length::FillPortion(part)).height(Length::Fill).class(class));
+        line = line.push(
+            container(space::horizontal())
+                .width(Length::FillPortion(part))
+                .height(Length::Fill)
+                .class(class),
+        );
     }
     if part < 1000 {
         line = line.push(space::horizontal().width(Length::FillPortion(1000 - part)));
     }
-    container(line).width(Length::Fill).class(track((height / 2.0).min(small()))).into()
+    container(line)
+        .width(Length::Fill)
+        .class(track((height / 2.0).min(small())))
+        .into()
 }
 
 // Label left, value right, a bar underneath, an explanation below.
-fn meter<'a>(name: String, value: String, fraction: f64, class: theme::Container<'static>, tip: String) -> Element<'a, Message> {
+fn meter<'a>(
+    name: String,
+    value: String,
+    fraction: f64,
+    class: theme::Container<'static>,
+    tip: String,
+) -> Element<'a, Message> {
     let mut block = column![
-        row![dim(name), space::horizontal().width(Length::Fill), text::caption(value)].align_y(Alignment::Center),
+        row![
+            dim(name),
+            space::horizontal().width(Length::Fill),
+            text::caption(value)
+        ]
+        .align_y(Alignment::Center),
         bar(fraction, class, 6.0),
     ]
     .spacing(4);
@@ -621,25 +856,45 @@ fn meter<'a>(name: String, value: String, fraction: f64, class: theme::Container
 }
 
 fn section<'a>(title: &str) -> Element<'a, Message> {
-    container(text::caption_heading(title.to_uppercase()).class(theme::Text::Custom(dim_text))).padding([8, 0, 0, 0]).into()
+    container(text::caption_heading(title.to_uppercase()).class(theme::Text::Custom(dim_text)))
+        .padding([8, 0, 0, 0])
+        .into()
 }
 
 fn small_icon<'a>(name: &'static str, size: u16) -> Element<'a, Message> {
-    icon::from_name(name).size(size).symbolic(true).icon().into()
+    icon::from_name(name)
+        .size(size)
+        .symbolic(true)
+        .icon()
+        .into()
 }
 
 // A small text action (icon + words).
-fn link<'a>(icon_name: &'static str, label: String, message: Option<Message>) -> Element<'a, Message> {
-    button::text(label).leading_icon(icon::from_name(icon_name).size(16).handle()).on_press_maybe(message).into()
+fn link<'a>(
+    icon_name: &'static str,
+    label: String,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    button::text(label)
+        .leading_icon(icon::from_name(icon_name).size(16).handle())
+        .on_press_maybe(message)
+        .into()
 }
 
 // A choice of a row (tabs, grouping): the chosen one stands out.
 fn choice<'a>(label: &'a str, chosen: bool) -> button::TextButton<'a, Message> {
-    if chosen { button::suggested(label) } else { button::text(label) }
+    if chosen {
+        button::suggested(label)
+    } else {
+        button::text(label)
+    }
 }
 
 fn icon_button<'a>(icon_name: &'static str, message: Option<Message>) -> Element<'a, Message> {
-    button::icon(icon::from_name(icon_name).size(16).handle()).extra_small().on_press_maybe(message).into()
+    button::icon(icon::from_name(icon_name).size(16).handle())
+        .extra_small()
+        .on_press_maybe(message)
+        .into()
 }
 
 // Four signal bars coloured like the panel line.
@@ -647,7 +902,11 @@ fn signal_bars<'a>(quality: f64) -> Element<'a, Message> {
     let mut bars = Row::new().spacing(2).align_y(Alignment::End);
     for (index, limit) in [0.0, 30.0, 50.0, 70.0].into_iter().enumerate() {
         let lit = quality > limit || (index == 0 && quality >= 0.0);
-        let class = if lit { fill(signal_color(quality / 100.0), small().min(1.0)) } else { track(small().min(1.0)) };
+        let class = if lit {
+            fill(signal_color(quality / 100.0), small().min(1.0))
+        } else {
+            track(small().min(1.0))
+        };
         bars = bars.push(
             container(space::horizontal())
                 .width(Length::Fixed(3.0))
@@ -668,12 +927,20 @@ fn bar_radar<'a>(on: bool, size: f32, tone: Option<Tone>, alpha: f32) -> Element
     radar_shape(if on { RADAR } else { RADAR_OFF }, size, tone, alpha)
 }
 
-fn radar_shape<'a>(bytes: &'static [u8], size: f32, tone: Option<Tone>, alpha: f32) -> Element<'a, Message> {
+fn radar_shape<'a>(
+    bytes: &'static [u8],
+    size: f32,
+    tone: Option<Tone>,
+    alpha: f32,
+) -> Element<'a, Message> {
     svg(iced_svg::Handle::from_memory(bytes))
         .width(Length::Fixed(size))
         .height(Length::Fixed(size))
         .class(theme::Svg::custom(move |theme: &cosmic::Theme| {
-            let mut c = tone.map_or_else(|| Color::from(theme.cosmic().on_bg_color()), |t| t.color(theme));
+            let mut c = tone.map_or_else(
+                || Color::from(theme.cosmic().on_bg_color()),
+                |t| t.color(theme),
+            );
             c.a *= alpha;
             iced_svg::Style { color: Some(c) }
         }))
@@ -683,14 +950,35 @@ fn radar_shape<'a>(bytes: &'static [u8], size: f32, tone: Option<Tone>, alpha: f
 // ------------------------------------------------------------------------- list and map
 
 enum Entry {
-    Header { id: String, title: String, icon: &'static str, detail: String, count: usize, online: usize, has_new: bool, collapsed: bool },
-    Device { index: usize, in_group: bool },
+    Header {
+        id: String,
+        title: String,
+        icon: &'static str,
+        detail: String,
+        count: usize,
+        online: usize,
+        has_new: bool,
+        collapsed: bool,
+    },
+    Device {
+        index: usize,
+        in_group: bool,
+    },
 }
 
 enum MapKind {
     Internet,
-    Ap { id: String, title: String },
-    Group { id: String, title: String, icon: &'static str, count: usize, online: usize },
+    Ap {
+        id: String,
+        title: String,
+    },
+    Group {
+        id: String,
+        title: String,
+        icon: &'static str,
+        count: usize,
+        online: usize,
+    },
     Device,
 }
 
@@ -742,6 +1030,9 @@ struct Monitor<const WINDOW_MODE: bool = false> {
     shot_key: bool,
     corners: String,
     corners_open: bool,
+    skin: String,
+    skin_open: bool,
+    cached_theme: Option<cosmic::Theme>,
     setting_error: bool,
     resize: window_size::Debounce,
     /// The settings page (Language, F12, Corners) is shown instead of the network.
@@ -803,6 +1094,8 @@ enum Message {
     SetShotKey(bool),
     ToggleCorners,
     Corners(String),
+    ToggleSkin,
+    SetSkin(String),
 }
 
 // Runs `work` on its own thread (saving must not hold up the popup) and answers with `done`.
@@ -815,20 +1108,68 @@ fn off_thread<T: Send + 'static>(
         let _ = sender.send(work());
     });
     Task::perform(receiver, move |result| {
-        cosmic::Action::App(done(result.unwrap_or_else(|_| Err("the file could not be written".into()))))
+        cosmic::Action::App(done(
+            result.unwrap_or_else(|_| Err("the file could not be written".into())),
+        ))
     })
 }
 
 // Settings › F12 saves a screenshot (on unless switched off) and Corners, from maprisma-settings.json.
 fn shot_key_setting() -> bool {
-    read_pref("screenshot_key").and_then(|v| v.as_bool()).unwrap_or(true)
+    read_pref("screenshot_key")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
 }
 
 fn corners_setting() -> String {
-    corners::normalize(read_pref("corners").as_ref().and_then(Value::as_str).unwrap_or("")).to_string()
+    corners::normalize(
+        read_pref("corners")
+            .as_ref()
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    )
+    .to_string()
+}
+
+fn skin_setting() -> String {
+    normalize_skin(
+        read_pref(SKIN_KEY)
+            .as_ref()
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    )
+    .to_string()
 }
 
 impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
+    fn rebuild_cached_theme(&mut self) {
+        self.cached_theme = active_theme(&self.skin, &self.corners);
+    }
+
+    fn apply_window_theme(&self) -> Task<Message> {
+        if !self.window_mode {
+            return Task::none();
+        }
+        Task::batch([
+            cosmic::command::set_theme(
+                self.cached_theme
+                    .clone()
+                    .unwrap_or_else(cosmic::theme::system_preference),
+            ),
+            cosmic::command::set_scaling_factor(maprisma_wlan_monitor::look::text_scale()),
+        ])
+    }
+
+    fn themed_window_content(&self) -> Element<'_, Message> {
+        match self.cached_theme.clone() {
+            Some(theme) => cosmic::iced::widget::themer(Some(theme), self.popup_content())
+                .background(maprisma_wlan_monitor::look::window_background)
+                .text_color(|t: &cosmic::Theme| t.cosmic().on_bg_color().into())
+                .into(),
+            None => self.popup_content(),
+        }
+    }
+
     // Done, Enter or the popup closing (keep: the note typed so far is saved), Esc (skip).
     fn finish_note(&mut self, keep: bool) -> Task<Message> {
         match std::mem::take(&mut self.shot) {
@@ -837,7 +1178,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     // Busy until the note is written, so a new F12 cannot replace it.
                     self.shot = shot::Phase::Noting;
                     return off_thread(
-                        move || shot::save_note(&path, SHOT_FOLDER, &text).map(|_| ()).map_err(|e| e.to_string()),
+                        move || {
+                            shot::save_note(&path, SHOT_FOLDER, &text)
+                                .map(|_| ())
+                                .map_err(|e| e.to_string())
+                        },
                         Message::NoteSaved,
                     );
                 }
@@ -853,33 +1198,52 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if std::mem::take(&mut self.capturing) && self.shot == shot::Phase::Busy {
             self.shot = shot::Phase::Idle;
         }
-        if matches!(self.shot, shot::Phase::Note { .. }) { self.finish_note(true) } else { Task::none() }
+        if matches!(self.shot, shot::Phase::Note { .. }) {
+            self.finish_note(true)
+        } else {
+            Task::none()
+        }
     }
 
     // After F12: "Screenshot saved", where, the optional note and Done (or the error and Done).
     fn shot_overlay(&self) -> Option<Element<'_, Message>> {
         let body: Element<Message> = match &self.shot {
-            shot::Phase::Note { shown, text: note, .. } => column![
+            shot::Phase::Note {
+                shown, text: note, ..
+            } => column![
                 text::heading(tr("Screenshot saved")),
                 dim(trf("Saved as {0}", &[shown.clone()])),
                 text_input(tr("What is wrong? (optional)"), note.as_str())
                     .id(NOTE_ID.clone())
                     .on_input(Message::NoteInput)
                     .on_submit(|_| Message::NoteDone),
-                row![space::horizontal().width(Length::Fill), button::suggested(tr("Done")).on_press(Message::NoteDone)],
+                row![
+                    space::horizontal().width(Length::Fill),
+                    button::suggested(tr("Done")).on_press(Message::NoteDone)
+                ],
             ]
             .spacing(12)
             .into(),
             shot::Phase::Error(reason) => column![
                 text::body(reason.clone()),
-                row![space::horizontal().width(Length::Fill), button::suggested(tr("Done")).on_press(Message::NoteDone)],
+                row![
+                    space::horizontal().width(Length::Fill),
+                    button::suggested(tr("Done")).on_press(Message::NoteDone)
+                ],
             ]
             .spacing(12)
             .into(),
             _ => return None,
         };
-        let card = container(body).padding(16).width(Length::Fill).class(theme::Container::Card);
-        let card = container(card).padding(12).width(if self.window_mode { Length::Fill } else { Length::Fixed(POPUP_WIDTH) });
+        let card = container(body)
+            .padding(16)
+            .width(Length::Fill)
+            .class(if skin_style(&self.skin).is_some() { card_style(&self.skin) } else { theme::Container::Card });
+        let card = container(card).padding(12).width(if self.window_mode {
+            Length::Fill
+        } else {
+            Length::Fixed(POPUP_WIDTH)
+        });
         Some(card.into())
     }
 
@@ -887,12 +1251,21 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if let Some(overlay) = self.shot_overlay() {
             return overlay;
         }
-        let body = scrollable(container(self.panel()).padding([12, 16]))
-            .height(if self.window_mode { Length::Fill } else { Length::Shrink });
+        let body =
+            scrollable(container(self.panel()).padding([12, 16])).height(if self.window_mode {
+                Length::Fill
+            } else {
+                Length::Shrink
+            });
         if self.window_mode {
-            container(body).width(Length::Fill).height(Length::Fill).into()
+            container(body)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
         } else {
-            column![container(body).max_height(POPUP_MAX_HEIGHT)].width(Length::Fixed(POPUP_WIDTH)).into()
+            column![container(body).max_height(POPUP_MAX_HEIGHT)]
+                .width(Length::Fixed(POPUP_WIDTH))
+                .into()
         }
     }
 
@@ -932,7 +1305,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn collapsed(&self) -> Vec<String> {
-        arr(&self.view(), "collapsed").iter().filter_map(Value::as_str).map(str::to_string).collect()
+        arr(&self.view(), "collapsed")
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
     }
 
     fn mesh_active(&self) -> bool {
@@ -952,7 +1329,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn view_modes(&self) -> &'static [&'static str] {
-        if self.mesh_active() { &["list", "platform", "type", "band", "ap"] } else { &["list", "platform", "type"] }
+        if self.mesh_active() {
+            &["list", "platform", "type", "band", "ap"]
+        } else {
+            &["list", "platform", "type"]
+        }
     }
 
     fn map_page(&self) -> bool {
@@ -974,7 +1355,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     // "Allow it with: <command>" hints carry a command the user can copy.
     fn vpn_command(&self) -> String {
         let hint = self.vpn().map(|v| s(v, "hint")).unwrap_or("");
-        hint.strip_prefix("Allow it with: ").unwrap_or("").to_string()
+        hint.strip_prefix("Allow it with: ")
+            .unwrap_or("")
+            .to_string()
     }
 
     fn fritz_needs_login(&self) -> bool {
@@ -990,7 +1373,13 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     // login whose id is no longer current.
     fn network_id(&self) -> String {
         let link = self.link();
-        json!([shown(link, "net_id"), s(link, "ssid"), s(link, "gateway"), shown(link, "gateway_mac")]).to_string()
+        json!([
+            shown(link, "net_id"),
+            s(link, "ssid"),
+            s(link, "gateway"),
+            shown(link, "gateway_mac")
+        ])
+        .to_string()
     }
 
     fn send(&self, line: &str) {
@@ -1006,7 +1395,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     fn save_view(&mut self, mode: String, collapsed: Vec<String>) {
         let collapsed: Vec<String> = collapsed.into_iter().take(32).collect();
         let view = json!({"mode": mode, "collapsed": collapsed});
-        self.send_json(json!({"cmd": "view", "mode": view["mode"], "collapsed": view["collapsed"]}));
+        self.send_json(
+            json!({"cmd": "view", "mode": view["mode"], "collapsed": view["collapsed"]}),
+        );
         self.local_view = Some(view);
     }
 
@@ -1023,7 +1414,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn band_of(&self, dev: &Value) -> String {
-        if let Some(band) = dev.get("mesh").map(|m| s(m, "band")).filter(|b| !b.is_empty()) {
+        if let Some(band) = dev
+            .get("mesh")
+            .map(|m| s(m, "band"))
+            .filter(|b| !b.is_empty())
+        {
             return band.to_string();
         }
         if b(dev, "is_self") && !s(self.link(), "via_band").is_empty() {
@@ -1040,7 +1435,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         match self.view_mode().as_str() {
             "platform" => {
                 let g = s(dev, "group");
-                if g.is_empty() { "other".into() } else { g.into() }
+                if g.is_empty() {
+                    "other".into()
+                } else {
+                    g.into()
+                }
             }
             "type" => kind_group(s(dev, "kind")).into(),
             "band" => {
@@ -1063,7 +1462,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         }
         if self.view_mode() == "ap" {
             let via = dev.get("mesh").map(|m| s(m, "via_mac")).unwrap_or("");
-            return if via.is_empty() { "none".into() } else { via.into() };
+            return if via.is_empty() {
+                "none".into()
+            } else {
+                via.into()
+            };
         }
         self.group_of(dev)
     }
@@ -1071,7 +1474,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     fn list_fold_ids(&self) -> Vec<String> {
         match self.view_mode().as_str() {
             "ap" => {
-                let mut ids: Vec<String> = self.aps().iter().map(|ap| s(ap, "mac").to_string()).collect();
+                let mut ids: Vec<String> = self
+                    .aps()
+                    .iter()
+                    .map(|ap| s(ap, "mac").to_string())
+                    .collect();
                 ids.push("none".into());
                 ids
             }
@@ -1081,7 +1488,10 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn map_fold_ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = order_for(&self.view_mode()).iter().map(|s| s.to_string()).collect();
+        let mut ids: Vec<String> = order_for(&self.view_mode())
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         for ap in self.aps() {
             if s(ap, "role") != "master" {
                 ids.push(s(ap, "mac").to_string());
@@ -1091,17 +1501,33 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn mesh_text(&self, dev: &Value) -> String {
-        let Some(m) = dev.get("mesh").filter(|m| !s(m, "via").is_empty()) else { return String::new() };
+        let Some(m) = dev.get("mesh").filter(|m| !s(m, "via").is_empty()) else {
+            return String::new();
+        };
         // With a single access point "via …" says nothing new; the band is enough.
         if self.aps().len() <= 1 {
-            return if s(m, "band") == "LAN" { tr("cable").into() } else { s(m, "band").into() };
+            return if s(m, "band") == "LAN" {
+                tr("cable").into()
+            } else {
+                s(m, "band").into()
+            };
         }
         let band = s(m, "band");
-        format!("{}{}", trf("via {0}", &[s(m, "via").into()]), if band.is_empty() { String::new() } else { format!(" · {band}") })
+        format!(
+            "{}{}",
+            trf("via {0}", &[s(m, "via").into()]),
+            if band.is_empty() {
+                String::new()
+            } else {
+                format!(" · {band}")
+            }
+        )
     }
 
     fn mesh_detail(&self, dev: &Value) -> String {
-        let Some(m) = dev.get("mesh").filter(|m| m.is_object()) else { return String::new() };
+        let Some(m) = dev.get("mesh").filter(|m| m.is_object()) else {
+            return String::new();
+        };
         let band = s(m, "band");
         let rate = n(m, "rate_mbps");
         if band.is_empty() && rate <= 0.0 {
@@ -1109,20 +1535,34 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         }
         let mut parts = Vec::new();
         if !band.is_empty() {
-            parts.push(if band == "LAN" { tr("cable (LAN)").to_string() } else { band.to_string() });
+            parts.push(if band == "LAN" {
+                tr("cable (LAN)").to_string()
+            } else {
+                band.to_string()
+            });
         }
         if rate > 0.0 {
             parts.push(format!("{rate} Mbit/s"));
         }
         if let Some(dbm) = num(m, "signal_dbm") {
-            parts.push(trf("signal {0} ({1} dBm)", &[signal_word(signal_quality(Some(dbm))).to_lowercase(), dbm.to_string()]));
+            parts.push(trf(
+                "signal {0} ({1} dBm)",
+                &[
+                    signal_word(signal_quality(Some(dbm))).to_lowercase(),
+                    dbm.to_string(),
+                ],
+            ));
         }
         parts.join(" · ")
     }
 
     fn right_label(&self, dev: &Value) -> String {
         let word = status_word(dev);
-        if b(dev, "online") || b(dev, "is_gateway") { s(dev, "ip").into() } else { format!("{word} · {}", s(dev, "ip")) }
+        if b(dev, "online") || b(dev, "is_gateway") {
+            s(dev, "ip").into()
+        } else {
+            format!("{word} · {}", s(dev, "ip"))
+        }
     }
 
     fn subtitle(&self, dev: &Value) -> String {
@@ -1163,10 +1603,19 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     return true;
                 }
                 let via = dev.get("mesh").map(|m| s(m, "via")).unwrap_or("");
-                [s(dev, "name"), s(dev, "auto_name"), s(dev, "ip"), s(dev, "vendor"), s(dev, "model"), s(dev, "hostname"), device_kind_label(dev), via]
-                    .join(" ")
-                    .to_lowercase()
-                    .contains(&query)
+                [
+                    s(dev, "name"),
+                    s(dev, "auto_name"),
+                    s(dev, "ip"),
+                    s(dev, "vendor"),
+                    s(dev, "model"),
+                    s(dev, "hostname"),
+                    device_kind_label(dev),
+                    via,
+                ]
+                .join(" ")
+                .to_lowercase()
+                .contains(&query)
             })
             .collect()
     }
@@ -1175,11 +1624,18 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let devs = self.visible_devices();
         let mode = self.view_mode();
         if mode == "list" || !self.filter.trim().is_empty() {
-            return devs.into_iter().map(|index| Entry::Device { index, in_group: false }).collect();
+            return devs
+                .into_iter()
+                .map(|index| Entry::Device {
+                    index,
+                    in_group: false,
+                })
+                .collect();
         }
         let collapsed = self.collapsed();
         let mut order: Vec<String> = Vec::new();
-        let mut buckets: HashMap<String, (String, &'static str, String, Vec<usize>)> = HashMap::new();
+        let mut buckets: HashMap<String, (String, &'static str, String, Vec<usize>)> =
+            HashMap::new();
         if mode == "ap" {
             for ap in self.aps() {
                 let mac = s(ap, "mac").to_string();
@@ -1187,11 +1643,23 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     tr("main router").to_string()
                 } else if !s(ap, "via").is_empty() {
                     let band = s(ap, "band");
-                    format!("{}{}", trf("via {0}", &[s(ap, "via").into()]), if band.is_empty() { String::new() } else { format!(" {band}") })
+                    format!(
+                        "{}{}",
+                        trf("via {0}", &[s(ap, "via").into()]),
+                        if band.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" {band}")
+                        }
+                    )
                 } else {
                     tr("repeater").to_string()
                 };
-                let name = if s(ap, "name").is_empty() { tr("Access point").to_string() } else { s(ap, "name").to_string() };
+                let name = if s(ap, "name").is_empty() {
+                    tr("Access point").to_string()
+                } else {
+                    s(ap, "name").to_string()
+                };
                 order.push(mac.clone());
                 buckets.insert(mac, (name, "network-wireless-symbolic", detail, Vec::new()));
             }
@@ -1208,7 +1676,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             }
             let id = if mode == "ap" {
                 let via = dev.get("mesh").map(|m| s(m, "via_mac")).unwrap_or("");
-                if buckets.contains_key(via) { via.to_string() } else { "none".to_string() }
+                if buckets.contains_key(via) {
+                    via.to_string()
+                } else {
+                    "none".to_string()
+                }
             } else {
                 self.group_of(dev)
             };
@@ -1221,9 +1693,17 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 .3
                 .push(index);
         }
-        let mut out: Vec<Entry> = top.into_iter().map(|index| Entry::Device { index, in_group: false }).collect();
+        let mut out: Vec<Entry> = top
+            .into_iter()
+            .map(|index| Entry::Device {
+                index,
+                in_group: false,
+            })
+            .collect();
         for id in order {
-            let Some((title, icon, detail, members)) = buckets.remove(&id) else { continue };
+            let Some((title, icon, detail, members)) = buckets.remove(&id) else {
+                continue;
+            };
             if members.is_empty() {
                 continue;
             }
@@ -1234,13 +1714,19 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 icon,
                 detail,
                 count: members.len(),
-                online: members.iter().filter(|&&i| b(&self.devices[i], "online")).count(),
+                online: members
+                    .iter()
+                    .filter(|&&i| b(&self.devices[i], "online"))
+                    .count(),
                 has_new: members.iter().any(|&i| b(&self.devices[i], "new")),
                 collapsed: is_collapsed,
             });
             // The user's choice always wins; a collapsed group with a new device shows NEW on its header.
             if !is_collapsed {
-                out.extend(members.into_iter().map(|index| Entry::Device { index, in_group: true }));
+                out.extend(members.into_iter().map(|index| Entry::Device {
+                    index,
+                    in_group: true,
+                }));
             }
         }
         out
@@ -1248,22 +1734,36 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     // The network as a tree: Internet › router › groups › devices, repeaters as their own branches.
     fn map_rows(&self) -> Vec<MapRow> {
-        let devs: Vec<usize> = (0..self.devices.len()).filter(|&i| !b(&self.devices[i], "hidden")).collect();
+        let devs: Vec<usize> = (0..self.devices.len())
+            .filter(|&i| !b(&self.devices[i], "hidden"))
+            .collect();
         let collapsed = self.collapsed();
-        let gateway = devs.iter().copied().find(|&i| b(&self.devices[i], "is_gateway"));
+        let gateway = devs
+            .iter()
+            .copied()
+            .find(|&i| b(&self.devices[i], "is_gateway"));
         let ap_macs: Vec<&str> = self.aps().iter().map(|ap| s(ap, "mac")).collect();
         let parent_of = |dev: &Value| -> String {
             let via = dev.get("mesh").map(|m| s(m, "via_mac")).unwrap_or("");
             if !via.is_empty() && ap_macs.contains(&via) {
                 via.to_string()
             } else {
-                gateway.map(|g| s(&self.devices[g], "mac").to_string()).unwrap_or_default()
+                gateway
+                    .map(|g| s(&self.devices[g], "mac").to_string())
+                    .unwrap_or_default()
             }
         };
         let is_repeater = |dev: &Value| {
-            s(dev, "kind") == "router" && !b(dev, "is_gateway") && dev.get("mesh").is_some_and(|m| s(m, "role") == "slave")
+            s(dev, "kind") == "router"
+                && !b(dev, "is_gateway")
+                && dev.get("mesh").is_some_and(|m| s(m, "role") == "slave")
         };
-        let mut rows = vec![MapRow { depth: 0, kind: MapKind::Internet, dev: None, collapsed: false }];
+        let mut rows = vec![MapRow {
+            depth: 0,
+            kind: MapKind::Internet,
+            dev: None,
+            collapsed: false,
+        }];
         let mode = self.view_mode();
         // Under each router / repeater: its devices in the groups, then its repeaters.
         fn walk<const W: bool>(
@@ -1282,7 +1782,10 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             let folded = !b(dev, "is_gateway") && collapsed.contains(&mac);
             rows.push(MapRow {
                 depth,
-                kind: MapKind::Ap { id: mac.clone(), title: s(dev, "name").to_string() },
+                kind: MapKind::Ap {
+                    id: mac.clone(),
+                    title: s(dev, "name").to_string(),
+                },
                 dev: Some(ap),
                 collapsed: folded,
             });
@@ -1299,11 +1802,20 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 .collect();
             if mode == "list" || mode == "ap" {
                 for i in members {
-                    rows.push(MapRow { depth: depth + 1, kind: MapKind::Device, dev: Some(i), collapsed: false });
+                    rows.push(MapRow {
+                        depth: depth + 1,
+                        kind: MapKind::Device,
+                        dev: Some(i),
+                        collapsed: false,
+                    });
                 }
             } else {
                 for id in order_for(mode) {
-                    let group: Vec<usize> = members.iter().copied().filter(|&i| this.group_of(&this.devices[i]) == *id).collect();
+                    let group: Vec<usize> = members
+                        .iter()
+                        .copied()
+                        .filter(|&i| this.group_of(&this.devices[i]) == *id)
+                        .collect();
                     if group.is_empty() {
                         continue;
                     }
@@ -1316,14 +1828,22 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                             title: title.into(),
                             icon,
                             count: group.len(),
-                            online: group.iter().filter(|&&i| b(&this.devices[i], "online")).count(),
+                            online: group
+                                .iter()
+                                .filter(|&&i| b(&this.devices[i], "online"))
+                                .count(),
                         },
                         dev: None,
                         collapsed: folded,
                     });
                     if !folded {
                         for i in group {
-                            rows.push(MapRow { depth: depth + 2, kind: MapKind::Device, dev: Some(i), collapsed: false });
+                            rows.push(MapRow {
+                                depth: depth + 2,
+                                kind: MapKind::Device,
+                                dev: Some(i),
+                                collapsed: false,
+                            });
                         }
                     }
                 }
@@ -1331,12 +1851,32 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             for &i in devs {
                 let d = &this.devices[i];
                 if is_repeater(d) && d.get("mesh").map(|m| s(m, "via_mac")) == Some(mac.as_str()) {
-                    walk(this, rows, devs, i, depth + 1, mode, collapsed, parent_of, is_repeater);
+                    walk(
+                        this,
+                        rows,
+                        devs,
+                        i,
+                        depth + 1,
+                        mode,
+                        collapsed,
+                        parent_of,
+                        is_repeater,
+                    );
                 }
             }
         }
         if let Some(g) = gateway {
-            walk(self, &mut rows, &devs, g, 1, &mode, &collapsed, &parent_of, &is_repeater);
+            walk(
+                self,
+                &mut rows,
+                &devs,
+                g,
+                1,
+                &mode,
+                &collapsed,
+                &parent_of,
+                &is_repeater,
+            );
         }
         rows
     }
@@ -1356,7 +1896,8 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         } else {
             0.6
         };
-        let mut glyph = row![bar_radar(active || self.scanning(), size, color, alpha)].align_y(Alignment::Start);
+        let mut glyph = row![bar_radar(active || self.scanning(), size, color, alpha)]
+            .align_y(Alignment::Start);
         // Dot: devices joined recently and are not marked as known yet.
         if n(&self.stats, "new_count") > 0.0 {
             glyph = glyph.push(
@@ -1370,11 +1911,16 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let line: Element<Message> = match quality {
             Some(q) => {
                 let f = (q / 100.0).clamp(0.0, 1.0);
-                container(bar(f.max(0.05), fill(signal_color(f), 1.0), 2.0)).width(Length::Fixed(size)).into()
+                container(bar(f.max(0.05), fill(signal_color(f), 1.0), 2.0))
+                    .width(Length::Fixed(size))
+                    .into()
             }
             None => space::vertical().height(Length::Fixed(2.0)).into(),
         };
-        column![glyph, line].spacing(2).align_x(Alignment::Center).into()
+        column![glyph, line]
+            .spacing(2)
+            .align_x(Alignment::Center)
+            .into()
     }
 
     // ------------------------------------------------------------------ popup
@@ -1394,7 +1940,13 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         } else {
             tr("Not connected").into()
         };
-        let color = active.then(|| if self.vpn().is_some() { Tone::Info } else { Tone::Ok });
+        let color = active.then(|| {
+            if self.vpn().is_some() {
+                Tone::Info
+            } else {
+                Tone::Ok
+            }
+        });
         let mut hero = row![
             radar(32.0, color, if active { 1.0 } else { 0.6 }),
             column![text::title4(tr("Maprisma WLAN Monitor")), dim(meta)].spacing(4),
@@ -1404,14 +1956,18 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         .align_y(Alignment::Center);
         if active {
             hero = hero.push(
-                container(text::caption(trf("{0} online", &[n(&self.stats, "online_count").to_string()])))
-                    .padding([4, 8])
-                    .class(track(pill_radius())),
+                container(text::caption(trf(
+                    "{0} online",
+                    &[n(&self.stats, "online_count").to_string()],
+                )))
+                .padding([4, 8])
+                .class(pill_style(&self.skin)),
             );
         }
         // Settings at the header's right end, as in Maprisma Launcher.
         hero = hero.push(cosmic::widget::tooltip(
-            button::icon(icon::from_name("emblem-system-symbolic").symbolic(true)).on_press(Message::ToggleSettings),
+            button::icon(icon::from_name("emblem-system-symbolic").symbolic(true))
+                .on_press(Message::ToggleSettings),
             text::body(tr("Settings")),
             cosmic::widget::tooltip::Position::Bottom,
         ));
@@ -1420,16 +1976,22 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     fn tabs(&self) -> Element<'_, Message> {
         let map = self.map_page();
-        row![
+        let tabs = row![
             choice(tr("Devices"), !map)
                 .leading_icon(icon::from_name("view-list-symbolic").size(16).handle())
                 .on_press_maybe(map.then(|| Message::ToggleGroup("mappage".into()))),
             choice(tr("Network map"), map)
-                .leading_icon(icon::from_name("network-workgroup-symbolic").size(16).handle())
+                .leading_icon(
+                    icon::from_name("network-workgroup-symbolic")
+                        .size(16)
+                        .handle()
+                )
                 .on_press_maybe((!map).then(|| Message::ToggleGroup("mappage".into()))),
         ]
-        .spacing(8)
-        .into()
+        .spacing(8);
+        if skin_style(&self.skin).is_some() {
+            container(tabs).padding(4).class(card_style(&self.skin)).into()
+        } else { tabs.into() }
     }
 
     fn notices(&self) -> Vec<Element<'_, Message>> {
@@ -1437,7 +1999,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         // A VPN blocks the home network: explain why everything looks idle, and how to fix it.
         if self.lan_blocked() {
             let vpn = self.vpn().unwrap_or(&Value::Null);
-            let name = if s(vpn, "name").is_empty() { tr("A VPN") } else { s(vpn, "name") };
+            let name = if s(vpn, "name").is_empty() {
+                tr("A VPN")
+            } else {
+                s(vpn, "name")
+            };
             let command = self.vpn_command();
             let hint = if command.is_empty() {
                 tr("Allow local network (LAN) access in your VPN settings.").to_string()
@@ -1454,28 +2020,61 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             ]
             .spacing(8);
             if !command.is_empty() {
-                let label = if self.flashing("vpn") { tr("Copied").to_string() } else { trf("Copy command: {0}", &[command]) };
-                block = block.push(link("edit-copy-symbolic", label, Some(Message::CopyVpnCommand)));
+                let label = if self.flashing("vpn") {
+                    tr("Copied").to_string()
+                } else {
+                    trf("Copy command: {0}", &[command])
+                };
+                block = block.push(link(
+                    "edit-copy-symbolic",
+                    label,
+                    Some(Message::CopyVpnCommand),
+                ));
             }
-            out.push(container(block).padding(12).width(Length::Fill).class(notice(Tone::Info)).into());
+            out.push(
+                container(block)
+                    .padding(12)
+                    .width(Length::Fill)
+                    .class(if skin_style(&self.skin).is_some() {
+                        card_style(&self.skin)
+                    } else {
+                        notice(Tone::Info)
+                    })
+                    .into(),
+            );
         }
         // The FRITZ!Box login needs to be typed again (new certificate, changed password).
         if self.fritz_needs_login() && !self.fritz_form_open && !self.lan_blocked() {
             let f = self.fritz();
-            let code = if s(f, "message_code").is_empty() { "fzCert" } else { s(f, "message_code") };
+            let code = if s(f, "message_code").is_empty() {
+                "fzCert"
+            } else {
+                s(f, "message_code")
+            };
             out.push(
                 container(
                     column![
-                        row![small_icon("dialog-warning-symbolic", 16), text::heading(fritz_message(code, arr(f, "message_args")))]
-                            .spacing(8)
-                            .align_y(Alignment::Center),
-                        link("dialog-password-symbolic", tr("Connect FRITZ!Box again").into(), Some(Message::StartFritzLogin)),
+                        row![
+                            small_icon("dialog-warning-symbolic", 16),
+                            text::heading(fritz_message(code, arr(f, "message_args")))
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                        link(
+                            "dialog-password-symbolic",
+                            tr("Connect FRITZ!Box again").into(),
+                            Some(Message::StartFritzLogin)
+                        ),
                     ]
                     .spacing(8),
                 )
                 .padding(12)
                 .width(Length::Fill)
-                .class(notice(Tone::Warn))
+                .class(if skin_style(&self.skin).is_some() {
+                    card_style(&self.skin)
+                } else {
+                    notice(Tone::Warn)
+                })
                 .into(),
             );
         }
@@ -1486,21 +2085,37 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let link = self.link();
         let traffic = self.stats.get("traffic").unwrap_or(&Value::Null);
         let active = self.active();
-        let ip = if s(link, "ip").is_empty() { "—" } else { s(link, "ip") };
+        let ip = if s(link, "ip").is_empty() {
+            "—"
+        } else {
+            s(link, "ip")
+        };
         let gateway = s(link, "gateway");
         let mut block = column![
             section(tr("Connection")),
             row![
                 text::heading(format!("{}  {ip}", tr("This PC"))),
                 space::horizontal().width(Length::Fill),
-                dim(if gateway.is_empty() { String::new() } else { format!("{}  {gateway}", tr("Router")) }),
+                dim(if gateway.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}  {gateway}", tr("Router"))
+                }),
             ]
             .align_y(Alignment::Center),
         ]
         .spacing(8);
         if active {
-            let cidr = if !s(link, "cidr").is_empty() { s(link, "cidr") } else { ip };
-            let iface = if s(link, "iface").is_empty() { "?" } else { s(link, "iface") };
+            let cidr = if !s(link, "cidr").is_empty() {
+                s(link, "cidr")
+            } else {
+                ip
+            };
+            let iface = if s(link, "iface").is_empty() {
+                "?"
+            } else {
+                s(link, "iface")
+            };
             let mut parts = vec![trf("Address {0} on {1}", &[cidr.into(), iface.into()])];
             if !s(link, "mac").is_empty() {
                 parts.push(trf("MAC {0}", &[s(link, "mac").into()]));
@@ -1521,10 +2136,23 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             }
             if n(link, "tx_mbps") > 0.0 {
                 let rx = shown(link, "rx_mbps");
-                tip.push(trf("link {0} Mbit/s", &[format!("{}{}", shown(link, "tx_mbps"), if rx.is_empty() { String::new() } else { format!(" / {rx}") })]));
+                tip.push(trf(
+                    "link {0} Mbit/s",
+                    &[format!(
+                        "{}{}",
+                        shown(link, "tx_mbps"),
+                        if rx.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" / {rx}")
+                        }
+                    )],
+                ));
             }
             if quality < 30.0 {
-                tip.push(tr("Weak? Move closer to the router or remove obstacles between you.").into());
+                tip.push(
+                    tr("Weak? Move closer to the router or remove obstacles between you.").into(),
+                );
             }
             block = block.push(meter(
                 format!("{}  ·  {}", tr("Signal"), signal_word(quality)),
@@ -1537,34 +2165,73 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let rate = n(traffic, "rx_rate") + n(traffic, "tx_rate");
         block = block.push(meter(
             tr("Traffic now").into(),
-            format!("↓ {}  ·  ↑ {}", format_rate(num(traffic, "rx_rate")), format_rate(num(traffic, "tx_rate"))),
-            if rate <= 0.0 { 0.0 } else { ((1.0 + rate / 1024.0).log10() / 4.0).min(1.0) },
+            format!(
+                "↓ {}  ·  ↑ {}",
+                format_rate(num(traffic, "rx_rate")),
+                format_rate(num(traffic, "tx_rate"))
+            ),
+            if rate <= 0.0 {
+                0.0
+            } else {
+                ((1.0 + rate / 1024.0).log10() / 4.0).min(1.0)
+            },
             neutral_fill(small()),
-            trf("Since connecting: {0} down, {1} up", &[format_bytes(n(traffic, "rx_bytes")), format_bytes(n(traffic, "tx_bytes"))]),
+            trf(
+                "Since connecting: {0} down, {1} up",
+                &[
+                    format_bytes(n(traffic, "rx_bytes")),
+                    format_bytes(n(traffic, "tx_bytes")),
+                ],
+            ),
         ));
         // Always say when a VPN is on, also when it lets the home network through.
         if let Some(vpn) = self.vpn() {
             block = block.push(accent(format!(
                 "{}  ·  {}",
                 trf("{0} is on", &[s(vpn, "name").into()]),
-                if self.lan_blocked() { tr("blocks your home network") } else { tr("home network reachable") }
+                if self.lan_blocked() {
+                    tr("blocks your home network")
+                } else {
+                    tr("home network reachable")
+                }
             )));
         }
         if active {
             // One summary line; the explanations and the FRITZ!Box login open on click.
-            let mut summary = if self.trusted() { tr("Your network").to_string() } else { tr("Not your network (passive)").to_string() };
+            let mut summary = if self.trusted() {
+                tr("Your network").to_string()
+            } else {
+                tr("Not your network (passive)").to_string()
+            };
             let via = s(link, "via");
             if !via.is_empty() {
-                let via = via.strip_prefix("Router (").and_then(|v| v.strip_suffix(')')).unwrap_or(via);
+                let via = via
+                    .strip_prefix("Router (")
+                    .and_then(|v| v.strip_suffix(')'))
+                    .unwrap_or(via);
                 summary += &format!("  ·  {}", trf("via {0}", &[via.into()]));
                 if !s(link, "via_band").is_empty() {
                     summary += &format!(" · {}", s(link, "via_band"));
                 }
             }
             let info = row![
-                small_icon(if self.trusted() { "security-high-symbolic" } else { "security-low-symbolic" }, 16),
+                small_icon(
+                    if self.trusted() {
+                        "security-high-symbolic"
+                    } else {
+                        "security-low-symbolic"
+                    },
+                    16
+                ),
                 text::caption(summary).width(Length::Fill),
-                small_icon(if self.info_open() { "pan-down-symbolic" } else { "pan-end-symbolic" }, 16),
+                small_icon(
+                    if self.info_open() {
+                        "pan-down-symbolic"
+                    } else {
+                        "pan-end-symbolic"
+                    },
+                    16
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center);
@@ -1577,7 +2244,8 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             );
             let fritz = self.fritz();
             let state = s(fritz, "state");
-            if self.info_open() || self.fritz_form_open || state == "error" || state == "connecting" {
+            if self.info_open() || self.fritz_form_open || state == "error" || state == "connecting"
+            {
                 let mut info = column![dim(if self.trusted() {
                     if self.stats.get("alerts").and_then(Value::as_bool) != Some(false) {
                         tr("Your network (trusted): looks for devices every 2 minutes and tells you when a new one joins.")
@@ -1608,15 +2276,30 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             links = links.push(dim(if count == 1 {
                 tr("FRITZ!Box connected · 1 access point").to_string()
             } else {
-                trf("FRITZ!Box connected · {0} access points", &[count.to_string()])
+                trf(
+                    "FRITZ!Box connected · {0} access points",
+                    &[count.to_string()],
+                )
             }));
         }
         if state != "connected" && state != "connecting" && !self.fritz_form_open {
-            let label = if state == "error" && !user.is_empty() { tr("Connect FRITZ!Box again") } else { tr("Show mesh details from the FRITZ!Box") };
-            links = links.push(link("dialog-password-symbolic", label.into(), Some(Message::StartFritzLogin)));
+            let label = if state == "error" && !user.is_empty() {
+                tr("Connect FRITZ!Box again")
+            } else {
+                tr("Show mesh details from the FRITZ!Box")
+            };
+            links = links.push(link(
+                "dialog-password-symbolic",
+                label.into(),
+                Some(Message::StartFritzLogin),
+            ));
         }
         if !user.is_empty() && !self.fritz_form_open {
-            links = links.push(link("view-conceal-symbolic", tr("Disconnect").into(), Some(Message::FritzLogout)));
+            links = links.push(link(
+                "view-conceal-symbolic",
+                tr("Disconnect").into(),
+                Some(Message::FritzLogout),
+            ));
         }
         let mut block = column![links].spacing(8);
         if (state == "error" || state == "connecting") && !s(f, "message").is_empty() {
@@ -1626,7 +2309,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 fritz_message(s(f, "message_code"), arr(f, "message_args"))
             };
             block = block.push(if state == "error" {
-                text::caption(message).class(theme::Text::Custom(warn_text)).into()
+                text::caption(message)
+                    .class(theme::Text::Custom(warn_text))
+                    .into()
             } else {
                 dim(message)
             });
@@ -1640,7 +2325,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     .on_input(|v| Message::FritzUser(v.chars().take(64).collect()))
                     .on_submit(|_| Message::FritzFocusPassword),
                 link(
-                    if self.fritz_help_open { "pan-down-symbolic" } else { "pan-end-symbolic" },
+                    if self.fritz_help_open {
+                        "pan-down-symbolic"
+                    } else {
+                        "pan-end-symbolic"
+                    },
                     tr("Where do I find user name and password?").into(),
                     Some(Message::FritzHelp)
                 ),
@@ -1650,14 +2339,21 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 form = form.push(container(dim(tr(FRITZ_HELP))).padding([0, 0, 0, 12]));
             }
             form = form.push(
-                secure_input(tr("Password"), self.fritz_password.as_str(), Some(Message::FritzPasswordVisible), !self.fritz_password_visible)
-                    .id(FRITZ_PASSWORD_ID.clone())
-                    .on_input(|v| Message::FritzPassword(v.chars().take(128).collect()))
-                    .on_submit(|_| Message::FritzConnect),
+                secure_input(
+                    tr("Password"),
+                    self.fritz_password.as_str(),
+                    Some(Message::FritzPasswordVisible),
+                    !self.fritz_password_visible,
+                )
+                .id(FRITZ_PASSWORD_ID.clone())
+                .on_input(|v| Message::FritzPassword(v.chars().take(128).collect()))
+                .on_submit(|_| Message::FritzConnect),
             );
             form = form.push(
                 row![
-                    button::suggested(tr("Connect")).on_press_maybe((!self.fritz_password.is_empty()).then_some(Message::FritzConnect)),
+                    button::suggested(tr("Connect")).on_press_maybe(
+                        (!self.fritz_password.is_empty()).then_some(Message::FritzConnect)
+                    ),
                     button::standard(tr("Cancel")).on_press(Message::FritzCancel),
                 ]
                 .spacing(8),
@@ -1672,10 +2368,13 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let mut chips = Row::new().spacing(4);
         for mode in self.view_modes() {
             chips = chips.push(
-                choice(view_short(mode), *mode == current).on_press(Message::SetViewMode(mode.to_string())),
+                choice(view_short(mode), *mode == current)
+                    .on_press(Message::SetViewMode(mode.to_string())),
             );
         }
-        chips.wrap().into()
+        if skin_style(&self.skin).is_some() {
+            container(chips.wrap()).padding(4).class(card_style(&self.skin)).into()
+        } else { chips.wrap().into() }
     }
 
     fn devices_page(&self) -> Element<'_, Message> {
@@ -1689,12 +2388,20 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let ids = self.list_fold_ids();
         page = page.push(
             row![
-                text::caption_heading(trf("Devices ({0})", &[total.to_string()]).to_uppercase()).class(theme::Text::Custom(dim_text)).width(Length::Fill),
+                text::caption_heading(trf("Devices ({0})", &[total.to_string()]).to_uppercase())
+                    .class(theme::Text::Custom(dim_text))
+                    .width(Length::Fill),
                 button::text(view_short(&self.view_mode()))
                     .trailing_icon(icon::from_name("pan-down-symbolic").size(16).handle())
                     .on_press(Message::ToggleChooser),
-                icon_button("list-add-symbolic", foldable.then(|| Message::FoldAll(false, ids.clone()))),
-                icon_button("list-remove-symbolic", foldable.then(|| Message::FoldAll(true, ids.clone()))),
+                icon_button(
+                    "list-add-symbolic",
+                    foldable.then(|| Message::FoldAll(false, ids.clone()))
+                ),
+                icon_button(
+                    "list-remove-symbolic",
+                    foldable.then(|| Message::FoldAll(true, ids.clone()))
+                ),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -1704,19 +2411,31 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         }
         // New devices since the user last checked (trusted networks only).
         if new_count > 0 {
-            let joined = if new_count == 1 { tr("1 new device joined").to_string() } else { trf("{0} new devices joined", &[new_count.to_string()]) };
+            let joined = if new_count == 1 {
+                tr("1 new device joined").to_string()
+            } else {
+                trf("{0} new devices joined", &[new_count.to_string()])
+            };
             page = page.push(
                 container(
                     row![
                         small_icon("emblem-important-symbolic", 16),
-                        text::caption(format!("{joined}. {}", tr("Not yours? Change your Wi-Fi password in the router."))).width(Length::Fill),
-                        link("object-select-symbolic", tr("All known").into(), Some(Message::KnownAll)),
+                        text::caption(format!(
+                            "{joined}. {}",
+                            tr("Not yours? Change your Wi-Fi password in the router.")
+                        ))
+                        .width(Length::Fill),
+                        link(
+                            "object-select-symbolic",
+                            tr("All known").into(),
+                            Some(Message::KnownAll)
+                        ),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
                 )
                 .padding(12)
-                .class(notice(Tone::Warn)),
+                .class(if skin_style(&self.skin).is_some() { card_style(&self.skin) } else { notice(Tone::Warn) }),
             );
         }
         if n(&self.stats, "named_count") == 0.0 && self.devices.len() > 1 && new_count == 0 {
@@ -1733,7 +2452,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             );
         }
         if active && !self.trusted() && total <= 3 {
-            page = page.push(dim(tr("Only a few devices visible. Click Rescan to look for more.")));
+            page = page.push(dim(tr(
+                "Only a few devices visible. Click Rescan to look for more.",
+            )));
         }
 
         let entries = self.list_entries();
@@ -1743,27 +2464,44 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 Entry::Header { .. } => self.group_header(entry),
                 Entry::Device { index, in_group } => {
                     let row = self.device_row(*index);
-                    if *in_group { container(row).padding([0, 0, 0, 12]).into() } else { row }
+                    if *in_group {
+                        container(row).padding([0, 0, 0, 12]).into()
+                    } else {
+                        row
+                    }
                 }
             });
         }
         if entries.is_empty() && !self.filter.is_empty() {
             list = list.push(dim(trf("No device matches “{0}”.", &[self.filter.clone()])));
         }
-        page = page.push(container(scrollable(list).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT));
+        page = page
+            .push(container(scrollable(list).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT));
 
         let mut footer = Row::new().spacing(8);
         if !self.devices.is_empty() {
             footer = footer.push(link(
                 "edit-copy-symbolic",
-                if self.flashing("list") { tr("Copied").into() } else { tr("Copy list").into() },
+                if self.flashing("list") {
+                    tr("Copied").into()
+                } else {
+                    tr("Copy list").into()
+                },
                 Some(Message::CopyList),
             ));
         }
         if hidden > 0 {
             footer = footer.push(link(
-                if self.show_hidden { "view-conceal-symbolic" } else { "view-reveal-symbolic" },
-                if self.show_hidden { trf("Hide {0} hidden", &[hidden.to_string()]) } else { trf("Show {0} hidden", &[hidden.to_string()]) },
+                if self.show_hidden {
+                    "view-conceal-symbolic"
+                } else {
+                    "view-reveal-symbolic"
+                },
+                if self.show_hidden {
+                    trf("Hide {0} hidden", &[hidden.to_string()])
+                } else {
+                    trf("Show {0} hidden", &[hidden.to_string()])
+                },
                 Some(Message::ToggleHidden),
             ));
         }
@@ -1772,7 +2510,17 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn group_header<'a>(&'a self, entry: &Entry) -> Element<'a, Message> {
-        let Entry::Header { id, title, icon, detail, count, online, has_new, collapsed } = entry else {
+        let Entry::Header {
+            id,
+            title,
+            icon,
+            detail,
+            count,
+            online,
+            has_new,
+            collapsed,
+        } = entry
+        else {
             return space::horizontal().into();
         };
         let mut count_text = String::new();
@@ -1784,12 +2532,27 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if online != count {
             count_text += &format!(" · {}", trf("{0} online", &[online.to_string()]));
         }
-        let title = if detail.is_empty() { title.clone() } else { format!("{title}  ·  {detail}") };
+        let title = if detail.is_empty() {
+            title.clone()
+        } else {
+            format!("{title}  ·  {detail}")
+        };
         let content = row![
             small_icon(icon, 16),
             text::heading(title).width(Length::Fill),
-            if *has_new { accent(count_text) } else { dim(count_text) },
-            small_icon(if *collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" }, 16),
+            if *has_new {
+                accent(count_text)
+            } else {
+                dim(count_text)
+            },
+            small_icon(
+                if *collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                },
+                16
+            ),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -1815,32 +2578,57 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             block = block.push(
                 row![
                     small_icon(kind_icon(s(dev, "kind")), 18),
-                    text_input(if s(dev, "auto_name").is_empty() { tr("Device name") } else { s(dev, "auto_name") }, self.edit_draft.as_str())
-                        .id(RENAME_ID.clone())
-                        .on_input(|v| Message::RenameDraft(v.chars().take(40).collect()))
-                        .on_submit(|_| Message::FinishRename),
+                    text_input(
+                        if s(dev, "auto_name").is_empty() {
+                            tr("Device name")
+                        } else {
+                            s(dev, "auto_name")
+                        },
+                        self.edit_draft.as_str()
+                    )
+                    .id(RENAME_ID.clone())
+                    .on_input(|v| Message::RenameDraft(v.chars().take(40).collect()))
+                    .on_submit(|_| Message::FinishRename),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
             );
-            block = block.push(container(dim(tr("Enter saves · Esc cancels · empty restores the automatic name"))).padding([0, 0, 0, 26]));
+            block = block.push(
+                container(dim(tr(
+                    "Enter saves · Esc cancels · empty restores the automatic name",
+                )))
+                .padding([0, 0, 0, 26]),
+            );
         } else {
-            let mut main = row![small_icon(kind_icon(s(dev, "kind")), 18)].spacing(8).align_y(Alignment::Center);
+            let mut main = row![small_icon(kind_icon(s(dev, "kind")), 18)]
+                .spacing(8)
+                .align_y(Alignment::Center);
             let name = s(dev, "name").to_string();
             let name: Element<Message> = if online {
                 text::heading(name).width(Length::Fill).into()
             } else {
-                text::body(name).class(theme::Text::Custom(dim_text)).width(Length::Fill).into()
+                text::body(name)
+                    .class(theme::Text::Custom(dim_text))
+                    .width(Length::Fill)
+                    .into()
             };
             main = main.push(name);
             if b(dev, "new") {
-                main = main.push(accent(tr("NEW")));
+                main = main.push(new_badge(&self.skin));
             }
             if b(dev, "pinned") {
                 main = main.push(small_icon("view-pin-symbolic", 14));
             }
-            let right = if self.flashing(&format!("ip:{key}")) { tr("copied to clipboard").to_string() } else { self.right_label(dev) };
-            main = main.push(if b(dev, "is_gateway") || b(dev, "is_self") { accent(right) } else { dim(right) });
+            let right = if self.flashing(&format!("ip:{key}")) {
+                tr("copied to clipboard").to_string()
+            } else {
+                self.right_label(dev)
+            };
+            main = main.push(if b(dev, "is_gateway") || b(dev, "is_self") {
+                accent(right)
+            } else {
+                dim(right)
+            });
             let mut top = row![
                 button::custom(main)
                     .padding([4, 8])
@@ -1851,11 +2639,18 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             .spacing(4)
             .align_y(Alignment::Center);
             if !web_url.is_empty() {
-                top = top.push(icon_button("web-browser-symbolic", Some(Message::OpenWeb(web_url.to_string()))));
+                top = top.push(icon_button(
+                    "web-browser-symbolic",
+                    Some(Message::OpenWeb(web_url.to_string())),
+                ));
             }
             if !s(dev, "ip").is_empty() {
                 top = top.push(icon_button(
-                    if self.flashing(&format!("ip:{key}")) { "object-select-symbolic" } else { "edit-copy-symbolic" },
+                    if self.flashing(&format!("ip:{key}")) {
+                        "object-select-symbolic"
+                    } else {
+                        "edit-copy-symbolic"
+                    },
                     Some(Message::CopyIp(key.clone())),
                 ));
             }
@@ -1873,12 +2668,40 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             let vendor = s(dev, "vendor");
             let hostname = s(dev, "hostname");
             for (name, value) in [
-                (tr("Connected via"), if !via.is_empty() && !b(dev, "is_gateway") { via.to_string() } else { String::new() }),
+                (
+                    tr("Connected via"),
+                    if !via.is_empty() && !b(dev, "is_gateway") {
+                        via.to_string()
+                    } else {
+                        String::new()
+                    },
+                ),
                 (tr("Connection"), self.mesh_detail(dev)),
-                (tr("Maker"), if vendor == "Private MAC" { tr("unknown (hidden by a private address)").into() } else { vendor.to_string() }),
+                (
+                    tr("Maker"),
+                    if vendor == "Private MAC" {
+                        tr("unknown (hidden by a private address)").into()
+                    } else {
+                        vendor.to_string()
+                    },
+                ),
                 (tr("Model"), s(dev, "model").to_string()),
-                (tr("Automatic name"), if s(dev, "custom_name").is_empty() { String::new() } else { s(dev, "auto_name").to_string() }),
-                (tr("Network name"), if !hostname.is_empty() && hostname != s(dev, "name") { hostname.to_string() } else { String::new() }),
+                (
+                    tr("Automatic name"),
+                    if s(dev, "custom_name").is_empty() {
+                        String::new()
+                    } else {
+                        s(dev, "auto_name").to_string()
+                    },
+                ),
+                (
+                    tr("Network name"),
+                    if !hostname.is_empty() && hostname != s(dev, "name") {
+                        hostname.to_string()
+                    } else {
+                        String::new()
+                    },
+                ),
                 (tr("IP address"), s(dev, "ip").to_string()),
                 (tr("MAC address"), s(dev, "mac").to_string()),
             ] {
@@ -1891,34 +2714,74 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             let mac = s(dev, "mac").to_string();
             let mut actions = Row::new().spacing(4);
             if can_edit && !editing {
-                actions = actions.push(link("document-edit-symbolic", tr("Rename").into(), Some(Message::StartRename(key.clone()))));
+                actions = actions.push(link(
+                    "document-edit-symbolic",
+                    tr("Rename").into(),
+                    Some(Message::StartRename(key.clone())),
+                ));
             }
             if editing {
-                actions = actions.push(link("object-select-symbolic", tr("Save").into(), Some(Message::FinishRename)));
-                actions = actions.push(link("window-close-symbolic", tr("Cancel").into(), Some(Message::CancelRename)));
+                actions = actions.push(link(
+                    "object-select-symbolic",
+                    tr("Save").into(),
+                    Some(Message::FinishRename),
+                ));
+                actions = actions.push(link(
+                    "window-close-symbolic",
+                    tr("Cancel").into(),
+                    Some(Message::CancelRename),
+                ));
             }
             if editable && !editing {
                 let pinned = b(dev, "pinned");
                 actions = actions.push(link(
                     "view-pin-symbolic",
-                    if pinned { tr("Unpin").into() } else { tr("Pin to top").into() },
-                    Some(Message::DeviceCommand("pin", mac.clone(), json!({"on": !pinned}))),
+                    if pinned {
+                        tr("Unpin").into()
+                    } else {
+                        tr("Pin to top").into()
+                    },
+                    Some(Message::DeviceCommand(
+                        "pin",
+                        mac.clone(),
+                        json!({"on": !pinned}),
+                    )),
                 ));
                 let hidden = b(dev, "hidden");
                 actions = actions.push(link(
-                    if hidden { "view-reveal-symbolic" } else { "view-conceal-symbolic" },
-                    if hidden { tr("Show").into() } else { tr("Hide").into() },
-                    Some(Message::DeviceCommand("hide", mac.clone(), json!({"on": !hidden}))),
+                    if hidden {
+                        "view-reveal-symbolic"
+                    } else {
+                        "view-conceal-symbolic"
+                    },
+                    if hidden {
+                        tr("Show").into()
+                    } else {
+                        tr("Hide").into()
+                    },
+                    Some(Message::DeviceCommand(
+                        "hide",
+                        mac.clone(),
+                        json!({"on": !hidden}),
+                    )),
                 ));
             }
             if !web_url.is_empty() && !editing {
-                actions = actions.push(link("web-browser-symbolic", tr("Open web page").into(), Some(Message::OpenWeb(web_url.to_string()))));
+                actions = actions.push(link(
+                    "web-browser-symbolic",
+                    tr("Open web page").into(),
+                    Some(Message::OpenWeb(web_url.to_string())),
+                ));
             }
             if b(dev, "new") && !editing {
                 actions = actions.push(link(
                     "object-select-symbolic",
                     tr("It's mine").into(),
-                    Some(Message::DeviceCommand("known", mac.clone(), json!({"on": true}))),
+                    Some(Message::DeviceCommand(
+                        "known",
+                        mac.clone(),
+                        json!({"on": true}),
+                    )),
                 ));
             }
             details = details.push(actions.wrap());
@@ -1929,22 +2792,46 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             }
             block = block.push(container(details).padding([0, 8, 8, 32]));
         }
-        if expanded { container(block).class(selected_row()).into() } else { block.into() }
+        if expanded {
+            container(block)
+                .class(if skin_style(&self.skin).is_some() {
+                    sub_card_style(&self.skin)
+                } else {
+                    selected_row()
+                })
+                .into()
+        } else {
+            block.into()
+        }
     }
 
     fn map_page_view(&self) -> Element<'_, Message> {
-        let n_devices = self.devices.iter().filter(|d| !b(d, "hidden") && !b(d, "is_gateway")).count();
+        let n_devices = self
+            .devices
+            .iter()
+            .filter(|d| !b(d, "hidden") && !b(d, "is_gateway"))
+            .count();
         let usable = self.view_mode() != "list" && self.view_mode() != "ap";
         let ids = self.map_fold_ids();
         let mut page = column![
             row![
-                dim(if n_devices == 1 { trf("{0} device", &["1".into()]) } else { trf("{0} devices", &[n_devices.to_string()]) }),
+                dim(if n_devices == 1 {
+                    trf("{0} device", &["1".into()])
+                } else {
+                    trf("{0} devices", &[n_devices.to_string()])
+                }),
                 space::horizontal().width(Length::Fill),
                 button::text(view_short(&self.view_mode()))
                     .trailing_icon(icon::from_name("pan-down-symbolic").size(16).handle())
                     .on_press(Message::ToggleChooser),
-                icon_button("list-add-symbolic", usable.then(|| Message::FoldAll(false, ids.clone()))),
-                icon_button("list-remove-symbolic", usable.then(|| Message::FoldAll(true, ids.clone()))),
+                icon_button(
+                    "list-add-symbolic",
+                    usable.then(|| Message::FoldAll(false, ids.clone()))
+                ),
+                icon_button(
+                    "list-remove-symbolic",
+                    usable.then(|| Message::FoldAll(true, ids.clone()))
+                ),
             ]
             .spacing(4)
             .align_y(Alignment::Center)
@@ -1957,7 +2844,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         for row_data in self.map_rows() {
             tree = tree.push(self.map_row(row_data));
         }
-        page = page.push(container(scrollable(tree).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT + 120.0));
+        page = page.push(
+            container(scrollable(tree).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT + 120.0),
+        );
         if !self.mesh_active() {
             page = page.push(dim(if b(self.fritz(), "available") {
                 tr("Connect your FRITZ!Box (Devices page, click the network line) to see the band, speed and signal of every device.")
@@ -1973,46 +2862,101 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     fn map_row(&self, r: MapRow) -> Element<'_, Message> {
         let dev = r.dev.map(|i| &self.devices[i]);
-        let (glyph, label, strong, online, message): (&'static str, String, bool, bool, Option<Message>) = match &r.kind {
+        let (glyph, label, strong, online, message): (
+            &'static str,
+            String,
+            bool,
+            bool,
+            Option<Message>,
+        ) = match &r.kind {
             MapKind::Internet => {
-                let via = self.vpn().map(|v| format!("  ·  {}", trf("via {0}", &[s(v, "name").into()]))).unwrap_or_default();
-                ("web-browser-symbolic", format!("{}{via}", tr("Internet")), true, true, None)
+                let via = self
+                    .vpn()
+                    .map(|v| format!("  ·  {}", trf("via {0}", &[s(v, "name").into()])))
+                    .unwrap_or_default();
+                (
+                    "web-browser-symbolic",
+                    format!("{}{via}", tr("Internet")),
+                    true,
+                    true,
+                    None,
+                )
             }
             MapKind::Ap { id, title } => {
                 let d = dev.unwrap_or(&Value::Null);
                 let model = s(d, "model");
-                let title = if title.is_empty() { tr("Router").to_string() } else { title.clone() };
-                let label = if b(d, "is_gateway") && !model.is_empty() { format!("{title}  ·  {model}") } else { title };
-                let message =
-                    if b(d, "is_gateway") { r.dev.map(Message::OpenDevice) } else { Some(Message::ToggleGroup(id.clone())) };
+                let title = if title.is_empty() {
+                    tr("Router").to_string()
+                } else {
+                    title.clone()
+                };
+                let label = if b(d, "is_gateway") && !model.is_empty() {
+                    format!("{title}  ·  {model}")
+                } else {
+                    title
+                };
+                let message = if b(d, "is_gateway") {
+                    r.dev.map(Message::OpenDevice)
+                } else {
+                    Some(Message::ToggleGroup(id.clone()))
+                };
                 (kind_icon("router"), label, true, true, message)
             }
-            MapKind::Group { id, title, icon, count, online } => (
+            MapKind::Group {
+                id,
+                title,
                 icon,
-                format!("{title}  ·  {}", if *count == 1 { trf("{0} device", &["1".into()]) } else { trf("{0} devices", &[count.to_string()]) }),
+                count,
+                online,
+            } => (
+                icon,
+                format!(
+                    "{title}  ·  {}",
+                    if *count == 1 {
+                        trf("{0} device", &["1".into()])
+                    } else {
+                        trf("{0} devices", &[count.to_string()])
+                    }
+                ),
                 true,
                 *online > 0,
                 Some(Message::ToggleGroup(id.clone())),
             ),
             MapKind::Device => {
                 let d = dev.unwrap_or(&Value::Null);
-                (kind_icon(s(d, "kind")), s(d, "name").to_string(), b(d, "is_self"), b(d, "online"), r.dev.map(Message::OpenDevice))
+                (
+                    kind_icon(s(d, "kind")),
+                    s(d, "name").to_string(),
+                    b(d, "is_self"),
+                    b(d, "online"),
+                    r.dev.map(Message::OpenDevice),
+                )
             }
         };
-        let mut content = row![small_icon(glyph, if matches!(r.kind, MapKind::Internet | MapKind::Ap { .. }) { 18 } else { 16 })]
-            .spacing(8)
-            .align_y(Alignment::Center);
+        let mut content = row![small_icon(
+            glyph,
+            if matches!(r.kind, MapKind::Internet | MapKind::Ap { .. }) {
+                18
+            } else {
+                16
+            }
+        )]
+        .spacing(8)
+        .align_y(Alignment::Center);
         let label: Element<Message> = if strong {
             text::heading(label).width(Length::Fill).into()
         } else if online {
             text::caption(label).width(Length::Fill).into()
         } else {
-            text::caption(label).class(theme::Text::Custom(dim_text)).width(Length::Fill).into()
+            text::caption(label)
+                .class(theme::Text::Custom(dim_text))
+                .width(Length::Fill)
+                .into()
         };
         content = content.push(label);
         if let (MapKind::Device, Some(d)) = (&r.kind, dev) {
             if b(d, "new") {
-                content = content.push(accent(tr("NEW")));
+                content = content.push(new_badge(&self.skin));
             }
             let mesh = d.get("mesh").unwrap_or(&Value::Null);
             let detail = if n(mesh, "rate_mbps") > 0.0 {
@@ -2030,22 +2974,44 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 content = content.push(signal_bars(quality));
             }
         }
-        let foldable = matches!(r.kind, MapKind::Group { .. }) || (matches!(r.kind, MapKind::Ap { .. }) && dev.is_some_and(|d| !b(d, "is_gateway")));
+        let foldable = matches!(r.kind, MapKind::Group { .. })
+            || (matches!(r.kind, MapKind::Ap { .. }) && dev.is_some_and(|d| !b(d, "is_gateway")));
         if foldable {
-            content = content.push(small_icon(if r.collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" }, 14));
+            content = content.push(small_icon(
+                if r.collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                },
+                14,
+            ));
         }
         // The tree: indentation and an elbow per level.
-        let lead = if r.depth == 0 { String::new() } else { "└ ".to_string() };
+        let lead = if r.depth == 0 {
+            String::new()
+        } else {
+            "└ ".to_string()
+        };
         let main = row![dim(lead), content].align_y(Alignment::Center);
         let main: Element<Message> = match message {
-            Some(m) => button::custom(main).padding([4, 8]).width(Length::Fill).class(theme::Button::MenuItem).on_press(m).into(),
+            Some(m) => button::custom(main)
+                .padding([4, 8])
+                .width(Length::Fill)
+                .class(theme::Button::MenuItem)
+                .on_press(m)
+                .into(),
             None => container(main).padding([4, 8]).into(),
         };
-        container(main).padding([0, 0, 0, (r.depth.saturating_sub(1) * 18) as u16]).into()
+        container(main)
+            .padding([0, 0, 0, (r.depth.saturating_sub(1) * 18) as u16])
+            .into()
     }
 
     fn footer(&self) -> Element<'_, Message> {
-        let gateway_url = self.gateway().map(|g| s(g, "web_url")).filter(|u| !u.is_empty());
+        let gateway_url = self
+            .gateway()
+            .map(|g| s(g, "web_url"))
+            .filter(|u| !u.is_empty());
         let mut buttons = Row::new().spacing(8).align_y(Alignment::Center);
         buttons = buttons.push(
             button::standard(tr("Rescan"))
@@ -2055,7 +3021,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if let Some(url) = gateway_url {
             buttons = buttons.push(
                 button::standard(tr("Router"))
-                    .leading_icon(icon::from_name("network-wireless-symbolic").size(16).handle())
+                    .leading_icon(
+                        icon::from_name("network-wireless-symbolic")
+                            .size(16)
+                            .handle(),
+                    )
                     .on_press(Message::OpenWeb(url.to_string())),
             );
         }
@@ -2064,13 +3034,24 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             buttons = buttons.push(
                 button::standard(if trusted { tr("Untrust") } else { tr("Trust") })
                     .leading_icon(
-                        icon::from_name(if trusted { "security-low-symbolic" } else { "security-high-symbolic" }).size(16).handle(),
+                        icon::from_name(if trusted {
+                            "security-low-symbolic"
+                        } else {
+                            "security-high-symbolic"
+                        })
+                        .size(16)
+                        .handle(),
                     )
-                    .on_press_maybe(b(self.link(), "can_trust").then_some(Message::SetTrusted(!trusted))),
+                    .on_press_maybe(
+                        b(self.link(), "can_trust").then_some(Message::SetTrusted(!trusted)),
+                    ),
             );
         }
         buttons = buttons.push(space::horizontal().width(Length::Fill));
-        buttons = buttons.push(icon_button("preferences-system-symbolic", Some(Message::OpenWifiSettings)));
+        buttons = buttons.push(icon_button(
+            "preferences-system-symbolic",
+            Some(Message::OpenWifiSettings),
+        ));
         let mut footer = column![buttons].spacing(8);
         // New-device alerts (trusted networks): a switch at the bottom, as in the GNOME menu.
         if self.active() && self.trusted() {
@@ -2080,7 +3061,9 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     .on_toggle(Message::Alerts),
             );
         }
-        if self.setting_error { footer = footer.push(dim(tr("Could not save the setting."))); }
+        if self.setting_error {
+            footer = footer.push(dim(tr("Could not save the setting.")));
+        }
         footer.into()
     }
 
@@ -2088,37 +3071,74 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     /// words at the left and the control at the right; a list opens under its row.
     fn settings_page(&self) -> Element<'_, Message> {
         let header = row![
-            button::text(tr("Back")).leading_icon(icon::from_name("go-previous-symbolic").size(16)).on_press(Message::ToggleSettings),
+            button::text(tr("Back"))
+                .leading_icon(icon::from_name("go-previous-symbolic").size(16))
+                .on_press(Message::ToggleSettings),
             space::horizontal().width(Length::Fill),
             dim(tr("Settings").to_uppercase()),
         ]
         .align_y(Alignment::Center);
         let choice = |label: String, open: bool, message: Message| -> Element<'_, Message> {
             button::text(label)
-                .trailing_icon(icon::from_name(if open { "pan-up-symbolic" } else { "pan-down-symbolic" }).size(16))
+                .trailing_icon(
+                    icon::from_name(if open {
+                        "pan-up-symbolic"
+                    } else {
+                        "pan-down-symbolic"
+                    })
+                    .size(16),
+                )
                 .on_press(message)
                 .into()
         };
-        let setting = |label: &'static str, control: Element<'static, Message>| -> Element<'static, Message> {
-            row![text::body(label), space::horizontal().width(Length::Fill), control].spacing(12).align_y(Alignment::Center).into()
+        let setting = |label: &'static str,
+                       control: Element<'static, Message>|
+         -> Element<'static, Message> {
+            row![
+                text::body(label),
+                space::horizontal().width(Length::Fill),
+                control
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into()
         };
         let item = |label: String, message: Message| -> Element<'static, Message> {
-            button::custom(text::body(label)).padding([6, 12]).width(Length::Fill).class(theme::Button::MenuItem).on_press(message).into()
+            button::custom(text::body(label))
+                .padding([6, 12])
+                .width(Length::Fill)
+                .class(theme::Button::MenuItem)
+                .on_press(message)
+                .into()
         };
         let current_code = i18n::setting();
         let options = i18n::choices();
-        let current = options.iter().find(|(c, _)| *c == current_code).map(|(_, l)| l.clone()).unwrap_or_default();
+        let current = options
+            .iter()
+            .find(|(c, _)| *c == current_code)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default();
         let mut page = column![header, divider::horizontal::default()].spacing(8);
-        page = page.push(setting(tr("Language"), choice(current, self.language_open, Message::ToggleLanguage)));
+        page = page.push(setting(
+            tr("Language"),
+            choice(current, self.language_open, Message::ToggleLanguage),
+        ));
         if self.language_open {
             let mut list = column![];
             for (code, label) in options {
-                let label = if code == current_code { format!("✓ {label}") } else { label };
+                let label = if code == current_code {
+                    format!("✓ {label}")
+                } else {
+                    label
+                };
                 list = list.push(item(label, Message::Language(code)));
             }
             page = page.push(list);
         }
-        page = page.push(setting(tr("F12 saves a screenshot"), toggler(self.shot_key).on_toggle(Message::SetShotKey).into()));
+        page = page.push(setting(
+            tr("F12 saves a screenshot"),
+            toggler(self.shot_key).on_toggle(Message::SetShotKey).into(),
+        ));
         let desktop = corners::desktop_radius().round().to_string();
         let corner_choices = [
             ("desktop", trf("Like the desktop ({0} px)", &[desktop])),
@@ -2126,18 +3146,70 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             ("rounded", trf("Rounded ({0} px)", &["12".into()])),
             ("square", tr("Square").to_string()),
         ];
-        let current = corner_choices.iter().find(|(c, _)| *c == self.corners).map(|(_, l)| l.clone()).unwrap_or_default();
-        page = page.push(setting(tr("Corners"), choice(current, self.corners_open, Message::ToggleCorners)));
+        let current = corner_choices
+            .iter()
+            .find(|(c, _)| *c == self.corners)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default();
+        page = page.push(setting(
+            tr("Corners"),
+            choice(current, self.corners_open, Message::ToggleCorners),
+        ));
         if self.corners_open {
             let mut list = column![];
             for (choice, label) in corner_choices {
-                let label = if self.corners == choice { format!("✓ {label}") } else { label };
+                let label = if self.corners == choice {
+                    format!("✓ {label}")
+                } else {
+                    label
+                };
                 list = list.push(item(label, Message::Corners(choice.into())));
             }
             page = page.push(list);
         }
-        if self.language_error { page = page.push(dim(tr("Could not save the language setting."))); }
-        if self.setting_error { page = page.push(dim(tr("Could not save the setting."))); }
+        page = page.push(setting(
+            tr("App skin"),
+            choice(
+                skin_label(&self.skin).to_string(),
+                self.skin_open,
+                Message::ToggleSkin,
+            ),
+        ));
+        page = page.push(dim(tr(
+            "Visual accent for cards and borders; Native keeps your desktop theme untouched.",
+        )));
+        if self.skin_open {
+            let mut list = column![];
+            for skin in SKINS {
+                let label = if self.skin == skin {
+                    format!("✓ {}", skin_label(skin))
+                } else {
+                    skin_label(skin).to_string()
+                };
+                let content: Element<Message> = if let Some(style) = skin_style(skin) {
+                    row![skin_swatch(style.accent), text::body(label)]
+                        .spacing(8)
+                        .align_y(Alignment::Center)
+                        .into()
+                } else {
+                    text::body(label).into()
+                };
+                list = list.push(
+                    button::custom(content)
+                        .padding([6, 12])
+                        .width(Length::Fill)
+                        .class(theme::Button::MenuItem)
+                        .on_press(Message::SetSkin(skin.into())),
+                );
+            }
+            page = page.push(list);
+        }
+        if self.language_error {
+            page = page.push(dim(tr("Could not save the language setting.")));
+        }
+        if self.setting_error {
+            page = page.push(dim(tr("Could not save the setting.")));
+        }
         page.into()
     }
 
@@ -2150,7 +3222,11 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             content = content.push(item);
         }
         content = content.push(divider::horizontal::default());
-        content = content.push(if self.map_page() { self.map_page_view() } else { self.devices_page() });
+        content = content.push(if self.map_page() {
+            self.map_page_view()
+        } else {
+            self.devices_page()
+        });
         content = content.push(divider::horizontal::default());
         content = content.push(self.footer());
         content.into()
@@ -2172,15 +3248,52 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             .unwrap_or_default();
         let ssid = s(self.link(), "ssid");
         let mut lines = vec![
-            format!("# {} ({now})", trf("Devices on {0}", &[cell(if ssid.is_empty() { tr("the network") } else { ssid })])),
+            format!(
+                "# {} ({now})",
+                trf(
+                    "Devices on {0}",
+                    &[cell(if ssid.is_empty() {
+                        tr("the network")
+                    } else {
+                        ssid
+                    })]
+                )
+            ),
             String::new(),
-            format!("| {} | {} | {} | IP | {} | {} | MAC |", tr("Name"), tr("Type"), tr("Status"), tr("Maker"), tr("Model")),
+            format!(
+                "| {} | {} | {} | IP | {} | {} | MAC |",
+                tr("Name"),
+                tr("Type"),
+                tr("Status"),
+                tr("Maker"),
+                tr("Model")
+            ),
             "| --- | --- | --- | --- | --- | --- | --- |".into(),
         ];
         for dev in self.devices.iter().take(256) {
-            let status = status_word(dev) + &if b(dev, "hidden") { format!(" {}", tr("(hidden)")) } else { String::new() };
-            let cells = [s(dev, "name"), kind_label(s(dev, "kind")), &status, s(dev, "ip"), s(dev, "vendor"), s(dev, "model"), s(dev, "mac")];
-            lines.push(format!("| {} |", cells.iter().map(|c| cell(c)).collect::<Vec<_>>().join(" | ")));
+            let status = status_word(dev)
+                + &if b(dev, "hidden") {
+                    format!(" {}", tr("(hidden)"))
+                } else {
+                    String::new()
+                };
+            let cells = [
+                s(dev, "name"),
+                kind_label(s(dev, "kind")),
+                &status,
+                s(dev, "ip"),
+                s(dev, "vendor"),
+                s(dev, "model"),
+                s(dev, "mac"),
+            ];
+            lines.push(format!(
+                "| {} |",
+                cells
+                    .iter()
+                    .map(|c| cell(c))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
         }
         lines.join("\n") + "\n"
     }
@@ -2198,10 +3311,15 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     fn save_size(&mut self, closing: bool) {
         let sharp = self.core.window.sharp_corners;
         let ignore = || window_size::not_users_size(sharp);
-        let size = if closing { self.resize.flush(ignore) } else { self.resize.due(std::time::Instant::now(), ignore) };
+        let size = if closing {
+            self.resize.flush(ignore)
+        } else {
+            self.resize.due(std::time::Instant::now(), ignore)
+        };
         let resized = size.is_some();
         if let Some(size) = size {
-            self.setting_error = write_pref(window_size::KEY, Some(window_size::to_value(size))).is_err();
+            self.setting_error =
+                write_pref(window_size::KEY, Some(window_size::to_value(size))).is_err();
         }
         // Hyprland: where the user left it, for the next open (a move sends no event, so after a
         // settled resize and on close; written only when it changed).
@@ -2209,13 +3327,18 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             && let Some(position) = window_size::current_position()
             && self.resize.moved(position)
         {
-            self.setting_error |= write_pref(window_size::POSITION_KEY, Some(window_size::position_value(position))).is_err();
+            self.setting_error |= write_pref(
+                window_size::POSITION_KEY,
+                Some(window_size::position_value(position)),
+            )
+            .is_err();
         }
     }
 
     fn popup_closed(&mut self) {
         self.send("closed");
         self.chooser = false;
+        self.skin_open = false;
         if !self.editing.is_empty() {
             self.editing.clear();
             self.devices_rev.clear();
@@ -2274,28 +3397,51 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
     fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
         let mut core = core;
         maprisma_wlan_monitor::look::solid(&mut core);
-        let mut app = Self { core, window_mode, shot_key: shot_key_setting(), corners: corners_setting(), ..Default::default() };
+        let mut app = Self {
+            core,
+            window_mode,
+            shot_key: shot_key_setting(),
+            corners: corners_setting(),
+            skin: skin_setting(),
+            ..Default::default()
+        };
         // Debug builds only: start on the settings page (for off-screen screenshots).
-        app.settings_open = cfg!(debug_assertions) && std::env::var("MAPRISMA_SHOT_PAGE").as_deref() == Ok("settings");
+        app.settings_open = cfg!(debug_assertions)
+            && std::env::var("MAPRISMA_SHOT_PAGE").as_deref() == Ok("settings");
         if window_mode {
             app.resize = window_size::Debounce::new(window_start_size());
             // Hyprland: back where the user left it (the tray rule first puts it under the bar).
-            window_size::restore_position(window_size::parse_position(read_pref(window_size::POSITION_KEY).as_ref()), window_start_size());
+            window_size::restore_position(
+                window_size::parse_position(read_pref(window_size::POSITION_KEY).as_ref()),
+                window_start_size(),
+            );
         }
         corners::set_current(&app.corners);
+        app.rebuild_cached_theme();
         let task = if window_mode {
             app.set_header_title(tr(APP_NAME).into());
             let id = app.core.main_window_id().unwrap();
             // The desktop's theme for the whole window (title bar too), see look.rs.
-            Task::batch([app.set_window_title(tr(APP_NAME).into(), id), corners::set_app_theme(&app.corners)])
-        } else { Task::none() };
+            Task::batch([
+                app.set_window_title(tr(APP_NAME).into(), id),
+                app.apply_window_theme(),
+            ])
+        } else {
+            Task::none()
+        };
         (app, task)
     }
 
     /// COSMIC's colours or light/dark mode changed: a window with its own corners (a custom
     /// theme, which libcosmic leaves alone) takes the new colours too.
-    fn system_theme_update(&mut self, _keys: &[&'static str], new_theme: &cosmic::cosmic_theme::Theme) -> Task<Message> {
-        corners::system_theme_update(&self.corners, new_theme, self.window_mode)
+    fn system_theme_update(
+        &mut self,
+        _keys: &[&'static str],
+        new_theme: &cosmic::cosmic_theme::Theme,
+    ) -> Task<Message> {
+        let _ = corners::system_theme_update::<Message>(&self.corners, new_theme, false);
+        self.rebuild_cached_theme();
+        self.apply_window_theme()
     }
 
     fn on_close_requested(&self, id: window::Id) -> Option<Message> {
@@ -2304,74 +3450,111 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
 
     fn on_window_resize(&mut self, id: window::Id, width: f32, height: f32) {
         if self.window_mode && self.core.main_window_id() == Some(id) {
-            self.resize.resized(width, height, std::time::Instant::now());
+            self.resize
+                .resized(width, height, std::time::Instant::now());
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = vec![
-            Subscription::run_with("wlan-monitor-collector", |_| {
-                stream::channel(8, |mut output| async move {
-                    run_collector(&mut output).await;
-                })
-            }),
-        ];
+        let mut subscriptions = vec![Subscription::run_with("wlan-monitor-collector", |_| {
+            stream::channel(8, |mut output| async move {
+                run_collector(&mut output).await;
+            })
+        })];
         if !self.window_mode {
-            subscriptions.push(rectangle_tracker_subscription(0).map(|update| Message::Rectangle(update.1)));
+            subscriptions
+                .push(rectangle_tracker_subscription(0).map(|update| Message::Rectangle(update.1)));
         }
         if self.window_mode {
-            subscriptions.push(cosmic::iced::time::every(Duration::from_millis(250)).map(|_| Message::WindowTick));
+            subscriptions.push(
+                cosmic::iced::time::every(Duration::from_millis(250)).map(|_| Message::WindowTick),
+            );
         }
         // F12 (no modifiers) in the popup or window; Esc closes the innermost thing (esc_step).
-        subscriptions.push(cosmic::iced::event::listen_with(|event, status, id| match event {
-            cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                if shot::is_shot_key(&key, modifiers) {
-                    Some(Message::ShotKey(id))
-                } else if status == cosmic::iced::event::Status::Ignored
-                    && matches!(key, cosmic::iced::keyboard::Key::Named(cosmic::iced::keyboard::key::Named::Escape))
-                {
-                    // Not one an open drop-down list took to close itself.
-                    Some(Message::Escape(id))
-                } else {
-                    None
+        subscriptions.push(cosmic::iced::event::listen_with(
+            |event, status, id| match event {
+                cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed {
+                    key,
+                    modifiers,
+                    ..
+                }) => {
+                    if shot::is_shot_key(&key, modifiers) {
+                        Some(Message::ShotKey(id))
+                    } else if status == cosmic::iced::event::Status::Ignored
+                        && matches!(
+                            key,
+                            cosmic::iced::keyboard::Key::Named(
+                                cosmic::iced::keyboard::key::Named::Escape
+                            )
+                        )
+                    {
+                        // Not one an open drop-down list took to close itself.
+                        Some(Message::Escape(id))
+                    } else {
+                        None
+                    }
                 }
-            }
-            _ => None,
-        }));
+                _ => None,
+            },
+        ));
         if self.scanning() {
-            subscriptions.push(cosmic::iced::time::every(Duration::from_millis(650)).map(|_| Message::Pulse));
+            subscriptions.push(
+                cosmic::iced::time::every(Duration::from_millis(650)).map(|_| Message::Pulse),
+            );
         }
         if !self.flash.is_empty() {
-            subscriptions.push(cosmic::iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick));
+            subscriptions
+                .push(cosmic::iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick));
         }
         Subscription::batch(subscriptions)
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ToggleLanguage => { self.language_open = !self.language_open; self.corners_open = false; }
+            Message::ToggleLanguage => {
+                self.language_open = !self.language_open;
+                self.corners_open = false;
+                self.skin_open = false;
+            }
             Message::ToggleSettings => {
                 self.settings_open = !self.settings_open;
                 self.language_open = false;
                 self.corners_open = false;
+                self.skin_open = false;
             }
             Message::ShotKey(id) => {
-                let shown = if self.window_mode { self.core.main_window_id() == Some(id) } else { self.popup == Some(id) };
+                let shown = if self.window_mode {
+                    self.core.main_window_id() == Some(id)
+                } else {
+                    self.popup == Some(id)
+                };
                 if self.shot_key && shown && self.shot == shot::Phase::Idle {
                     self.shot = shot::Phase::Busy;
                     self.capturing = true;
-                    return window::screenshot(id).map(|picture| cosmic::Action::App(Message::Captured(picture)));
+                    return window::screenshot(id)
+                        .map(|picture| cosmic::Action::App(Message::Captured(picture)));
                 }
             }
             Message::Captured(picture) => {
-                if !std::mem::take(&mut self.capturing) { return Task::none(); }
+                if !std::mem::take(&mut self.capturing) {
+                    return Task::none();
+                }
                 let (width, height) = (picture.size.width, picture.size.height);
-                return off_thread(move || shot::save_screenshot(SHOT_FOLDER, &picture.rgba, width, height), Message::ShotSaved);
+                return off_thread(
+                    move || shot::save_screenshot(SHOT_FOLDER, &picture.rgba, width, height),
+                    Message::ShotSaved,
+                );
             }
             Message::ShotSaved(result) => {
                 self.shot = match result {
-                    Ok(saved) => shot::Phase::Note { path: saved.path, shown: saved.shown, text: String::new() },
-                    Err(reason) => shot::Phase::Error(trf("The screenshot could not be saved: {0}", &[reason])),
+                    Ok(saved) => shot::Phase::Note {
+                        path: saved.path,
+                        shown: saved.shown,
+                        text: String::new(),
+                    },
+                    Err(reason) => {
+                        shot::Phase::Error(trf("The screenshot could not be saved: {0}", &[reason]))
+                    }
                 };
                 if matches!(self.shot, shot::Phase::Note { .. }) {
                     return text_input::focus(NOTE_ID.clone());
@@ -2384,37 +3567,62 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::NoteDone => return self.finish_note(true),
             Message::Escape(id) => {
-                let shown = if self.window_mode { self.core.main_window_id() == Some(id) } else { self.popup == Some(id) };
+                let shown = if self.window_mode {
+                    self.core.main_window_id() == Some(id)
+                } else {
+                    self.popup == Some(id)
+                };
                 match esc_step(EscState {
                     shown,
                     note: self.shot.open(),
                     rename: !self.editing.is_empty(),
                     fritz_form: self.fritz_form_open,
-                    menus: self.language_open || self.corners_open || self.chooser,
+                    menus: self.language_open
+                        || self.corners_open
+                        || self.skin_open
+                        || self.chooser,
                     filter: !self.filter.is_empty(),
                     settings: self.settings_open,
                 }) {
                     EscStep::Note => return self.finish_note(false),
                     EscStep::Rename => return self.update(Message::CancelRename),
                     EscStep::FritzForm => self.close_fritz_form(),
-                    EscStep::Menus => { self.language_open = false; self.corners_open = false; self.chooser = false; }
+                    EscStep::Menus => {
+                        self.language_open = false;
+                        self.corners_open = false;
+                        self.skin_open = false;
+                        self.chooser = false;
+                    }
                     EscStep::Filter => self.filter.clear(),
                     EscStep::Back => self.settings_open = false,
                     // Like the window's own close (the tray keeps running); the popup like a click on the icon.
-                    EscStep::Close if self.window_mode => return self.update(Message::CloseRequested(id)),
+                    EscStep::Close if self.window_mode => {
+                        return self.update(Message::CloseRequested(id));
+                    }
                     EscStep::Close => return self.update(Message::TogglePopup),
                     EscStep::Nothing => {}
                 }
             }
             Message::NoteSaved(result) => match result {
-                Ok(()) => { if self.shot == shot::Phase::Noting { self.shot = shot::Phase::Idle; } }
-                Err(reason) => self.shot = shot::Phase::Error(trf("The note could not be saved: {0}", &[reason])),
+                Ok(()) => {
+                    if self.shot == shot::Phase::Noting {
+                        self.shot = shot::Phase::Idle;
+                    }
+                }
+                Err(reason) => {
+                    self.shot =
+                        shot::Phase::Error(trf("The note could not be saved: {0}", &[reason]))
+                }
             },
             Message::SetShotKey(on) => {
                 self.setting_error = write_pref("screenshot_key", Some(on.into())).is_err();
                 self.shot_key = on;
             }
-            Message::ToggleCorners => { self.corners_open = !self.corners_open; self.language_open = false; }
+            Message::ToggleCorners => {
+                self.corners_open = !self.corners_open;
+                self.language_open = false;
+                self.skin_open = false;
+            }
             Message::Corners(choice) => {
                 let choice = corners::normalize(&choice);
                 // "Like the desktop" is the default: no key in the settings file.
@@ -2423,14 +3631,37 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 self.corners = choice.to_string();
                 corners::set_current(choice);
                 self.corners_open = false;
-                if self.window_mode { return corners::set_app_theme(choice); }
+                self.rebuild_cached_theme();
+                if self.window_mode {
+                    return self.apply_window_theme();
+                }
+            }
+            Message::ToggleSkin => {
+                self.skin_open = !self.skin_open;
+                self.corners_open = false;
+                self.language_open = false;
+                self.chooser = false;
+            }
+            Message::SetSkin(skin) => {
+                let skin = normalize_skin(&skin);
+                self.setting_error =
+                    write_pref(SKIN_KEY, (skin != "native").then(|| Value::from(skin))).is_err();
+                self.skin = skin.to_string();
+                self.skin_open = false;
+                self.rebuild_cached_theme();
+                if self.window_mode {
+                    return self.apply_window_theme();
+                }
             }
             Message::Language(code) => {
                 self.language_error = i18n::save_language(&code).is_err();
                 self.send_json(json!({"cmd": "lang", "lang": i18n::language()}));
                 if self.window_mode {
                     self.set_header_title(tr(APP_NAME).into());
-                    return self.set_window_title(tr(APP_NAME).into(), self.core.main_window_id().unwrap());
+                    return self.set_window_title(
+                        tr(APP_NAME).into(),
+                        self.core.main_window_id().unwrap(),
+                    );
                 }
             }
             Message::Ready(commands) => {
@@ -2444,9 +3675,21 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 // Settings changed in another interface (window, applet) take effect here too.
                 self.shot_key = shot_key_setting();
                 let corners = corners_setting();
-                let restyle = corners != self.corners;
-                if restyle { corners::set_current(&corners); self.corners = corners; }
-                let restyle = if restyle && self.window_mode { corners::set_app_theme(&self.corners) } else { Task::none() };
+                let skin = skin_setting();
+                let restyle = corners != self.corners || skin != self.skin;
+                if corners != self.corners {
+                    corners::set_current(&corners);
+                    self.corners = corners;
+                }
+                self.skin = skin;
+                if restyle {
+                    self.rebuild_cached_theme();
+                }
+                let restyle = if restyle {
+                    self.apply_window_theme()
+                } else {
+                    Task::none()
+                };
                 let language = i18n::language();
                 let language_changed = language != self.last_language;
                 if language_changed {
@@ -2462,7 +3705,8 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
                 if language_changed && self.window_mode {
                     self.set_header_title(tr(APP_NAME).into());
-                    let title = self.set_window_title(tr(APP_NAME).into(), self.core.main_window_id().unwrap());
+                    let title = self
+                        .set_window_title(tr(APP_NAME).into(), self.core.main_window_id().unwrap());
                     return Task::batch([title, restyle]);
                 }
                 return restyle;
@@ -2474,11 +3718,19 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::Pulse => self.pulse_dim = !self.pulse_dim,
             Message::WindowTick => {
-                if CLOSE_WINDOW.load(Ordering::Relaxed) { self.save_size(true); return cosmic::iced::exit(); }
-                if self.resize.waiting() { self.save_size(false); }
+                if CLOSE_WINDOW.load(Ordering::Relaxed) {
+                    self.save_size(true);
+                    return cosmic::iced::exit();
+                }
+                if self.resize.waiting() {
+                    self.save_size(false);
+                }
                 // The desktop's colours and corners (Maprisma Theme can change them any time);
                 // look::refresh re-reads at most every 5 s.
-                if maprisma_wlan_monitor::look::refresh() { return corners::set_app_theme(&self.corners); }
+                if maprisma_wlan_monitor::look::refresh() {
+                    self.rebuild_cached_theme();
+                    return self.apply_window_theme();
+                }
             }
             Message::Tick => self.flash.retain(|_, at| at.elapsed() < FLASH),
             Message::Rectangle(update) => match update {
@@ -2501,7 +3753,9 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
             }
             Message::TogglePopup => {
-                if self.window_mode { return Task::none(); }
+                if self.window_mode {
+                    return Task::none();
+                }
                 if let Some(popup) = self.popup.take() {
                     self.popup_closed();
                     return Task::batch([self.shot_popup_closed(), destroy_popup(popup)]);
@@ -2512,25 +3766,38 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 } else {
                     Task::none()
                 };
-                return Task::batch([cosmic::surface::surface_task(cosmic::surface::action::app_popup(
-                    |_| Default::default(),
-                    |app: &mut Self| {
-                        let id = window::Id::unique();
-                        app.popup = Some(id);
-                        let mut settings =
-                            app.core.applet.get_popup_settings(app.core.main_window_id().unwrap(), id, None, None, None);
-                        let Rectangle { x, y, width, height } = app.rectangle;
-                        settings.positioner.anchor_rect = Rectangle::<i32> {
-                            x: x.max(1.0) as i32,
-                            y: y.max(1.0) as i32,
-                            width: width.max(1.0) as i32,
-                            height: height.max(1.0) as i32,
-                        };
-                        settings.positioner.size = None;
-                        settings
-                    },
-                    None,
-                )), focus]);
+                return Task::batch([
+                    cosmic::surface::surface_task(cosmic::surface::action::app_popup(
+                        |_| Default::default(),
+                        |app: &mut Self| {
+                            let id = window::Id::unique();
+                            app.popup = Some(id);
+                            let mut settings = app.core.applet.get_popup_settings(
+                                app.core.main_window_id().unwrap(),
+                                id,
+                                None,
+                                None,
+                                None,
+                            );
+                            let Rectangle {
+                                x,
+                                y,
+                                width,
+                                height,
+                            } = app.rectangle;
+                            settings.positioner.anchor_rect = Rectangle::<i32> {
+                                x: x.max(1.0) as i32,
+                                y: y.max(1.0) as i32,
+                                width: width.max(1.0) as i32,
+                                height: height.max(1.0) as i32,
+                            };
+                            settings.positioner.size = None;
+                            settings
+                        },
+                        None,
+                    )),
+                    focus,
+                ]);
             }
             Message::Rescan => {
                 if !self.rescan_pending {
@@ -2563,20 +3830,32 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
             }
             Message::FoldAll(fold, ids) => {
-                let mut collapsed: Vec<String> = self.collapsed().into_iter().filter(|c| !ids.contains(c)).collect();
+                let mut collapsed: Vec<String> = self
+                    .collapsed()
+                    .into_iter()
+                    .filter(|c| !ids.contains(c))
+                    .collect();
                 if fold {
                     collapsed.extend(ids);
                 }
                 let mode = self.view_mode();
                 self.save_view(mode, collapsed);
             }
-            Message::ToggleChooser => self.chooser = !self.chooser,
+            Message::ToggleChooser => { self.chooser = !self.chooser; self.skin_open = false; },
             Message::ToggleDevice(key) => {
                 self.editing.clear();
-                self.expanded = if self.expanded == key { String::new() } else { key };
+                self.expanded = if self.expanded == key {
+                    String::new()
+                } else {
+                    key
+                };
             }
             Message::StartRename(key) => {
-                let draft = self.devices.iter().find(|d| device_key(d) == key).map(|d| s(d, "name").to_string());
+                let draft = self
+                    .devices
+                    .iter()
+                    .find(|d| device_key(d) == key)
+                    .map(|d| s(d, "name").to_string());
                 self.expanded = key.clone();
                 self.editing = key;
                 self.edit_draft = draft.unwrap_or_default();
@@ -2584,7 +3863,10 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::RenameDraft(text) => self.edit_draft = text,
             Message::FinishRename => {
-                let dev = self.devices.iter().find(|d| device_key(d) == self.editing && b(d, "can_edit"));
+                let dev = self
+                    .devices
+                    .iter()
+                    .find(|d| device_key(d) == self.editing && b(d, "can_edit"));
                 if let Some(dev) = dev {
                     let name: String = self.edit_draft.trim().chars().take(40).collect();
                     self.send_json(json!({"cmd": "rename", "mac": s(dev, "mac"), "name": name}));
@@ -2606,7 +3888,12 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             Message::Filter(text) => self.filter = text,
             Message::ToggleHidden => self.show_hidden = !self.show_hidden,
             Message::CopyIp(key) => {
-                let ip = self.devices.iter().find(|d| device_key(d) == key).map(|d| s(d, "ip").to_string()).unwrap_or_default();
+                let ip = self
+                    .devices
+                    .iter()
+                    .find(|d| device_key(d) == key)
+                    .map(|d| s(d, "ip").to_string())
+                    .unwrap_or_default();
                 if is_ipv4(&ip) {
                     return self.copy(format!("ip:{key}"), ip);
                 }
@@ -2630,7 +3917,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::OpenWifiSettings => {
                 // The applet runs only in COSMIC's panel; a window on whichever desktop it is on.
-                let desktop = if self.window_mode { maprisma_wlan_monitor::look::desktop() } else { Desktop::Cosmic };
+                let desktop = if self.window_mode {
+                    maprisma_wlan_monitor::look::desktop()
+                } else {
+                    Desktop::Cosmic
+                };
                 if let Some(argv) = wifi_settings_command(desktop, in_path) {
                     spawn_detached(argv);
                 }
@@ -2648,7 +3939,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                     }
                     self.filter.clear();
                     self.expanded = device_key(&dev);
-                    let collapsed = self.collapsed().into_iter().filter(|c| !drop.contains(c)).collect();
+                    let collapsed = self
+                        .collapsed()
+                        .into_iter()
+                        .filter(|c| !drop.contains(c))
+                        .collect();
                     let mode = self.view_mode();
                     self.save_view(mode, collapsed);
                 }
@@ -2678,11 +3973,18 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::FritzUser(text) => self.fritz_user = text,
             Message::FritzPassword(text) => self.fritz_password = text,
-            Message::FritzPasswordVisible => self.fritz_password_visible = !self.fritz_password_visible,
-            Message::FritzFocusPassword => return cosmic::widget::text_input::focus(FRITZ_PASSWORD_ID.clone()),
+            Message::FritzPasswordVisible => {
+                self.fritz_password_visible = !self.fritz_password_visible
+            }
+            Message::FritzFocusPassword => {
+                return cosmic::widget::text_input::focus(FRITZ_PASSWORD_ID.clone());
+            }
             Message::FritzConnect => {
                 // Typed for another router: the network changed while the form was open.
-                if !self.fritz_password.is_empty() && !self.fritz_form_net_id.is_empty() && self.fritz_form_net == self.network_id() {
+                if !self.fritz_password.is_empty()
+                    && !self.fritz_form_net_id.is_empty()
+                    && self.fritz_form_net == self.network_id()
+                {
                     self.send_json(json!({
                         "cmd": "fritz_login",
                         "user": self.fritz_user.trim(),
@@ -2700,11 +4002,20 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
 
     fn view(&self) -> Element<'_, Message> {
         maprisma_wlan_monitor::look::keep_fonts();
-        if self.window_mode { return corners::apply_window(&self.corners, self.popup_content()); }
-        let horizontal = matches!(self.core.applet.anchor, PanelAnchor::Top | PanelAnchor::Bottom);
+        if self.window_mode {
+            return self.themed_window_content();
+        }
+        let horizontal = matches!(
+            self.core.applet.anchor,
+            PanelAnchor::Top | PanelAnchor::Bottom
+        );
         let padding = self.core.applet.suggested_padding(true).0;
         let button = button::custom(self.panel_content())
-            .padding(if horizontal { [0, padding] } else { [padding, 0] })
+            .padding(if horizontal {
+                [0, padding]
+            } else {
+                [padding, 0]
+            })
             .on_press_down(Message::TogglePopup)
             .class(theme::Button::AppletIcon);
         // Right click: an immediate rescan.
@@ -2718,13 +4029,47 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
 
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
         maprisma_wlan_monitor::look::keep_fonts();
-        if self.window_mode { return corners::apply_window(&self.corners, self.popup_content()); }
+        if self.window_mode {
+            return self.themed_window_content();
+        }
 
-        corners::apply(&self.corners, self.core.applet.popup_container(self.popup_content()))
+        match self.cached_theme.clone() {
+            Some(theme) => {
+                let inner: Element<Message> = if skin_style(&self.skin).is_some() {
+                    let bg = Color::from(theme.cosmic().bg_color());
+                    let fg = Color::from(theme.cosmic().on_bg_color());
+                    container(self.popup_content())
+                        .class(theme::Container::custom(move |_| iced_container::Style {
+                            background: Some(Background::Color(bg)),
+                            text_color: Some(fg),
+                            border: Border {
+                                radius: corners::now().radius.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }))
+                        .into()
+                } else {
+                    self.popup_content()
+                };
+                cosmic::iced::widget::themer(Some(theme), self.core.applet.popup_container(inner))
+                    .text_color(|t: &cosmic::Theme| t.cosmic().on_bg_color().into())
+                    .into()
+            }
+            None => self
+                .core
+                .applet
+                .popup_container(self.popup_content())
+                .into(),
+        }
     }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {
-        if self.window_mode { None } else { Some(cosmic::applet::style()) }
+        if self.window_mode {
+            None
+        } else {
+            Some(cosmic::applet::style())
+        }
     }
 }
 
@@ -2784,7 +4129,10 @@ async fn run_collector(output: &mut mpsc::Sender<Message>) {
 
 /// The Wi-Fi settings for this desktop: COSMIC's or Plasma's own; elsewhere (Hyprland) the first
 /// one installed: Omarchy's Wi-Fi launcher, NetworkManager's editor, Plasma's, COSMIC's.
-fn wifi_settings_command(desktop: Desktop, installed: impl Fn(&str) -> bool) -> Option<&'static [&'static str]> {
+fn wifi_settings_command(
+    desktop: Desktop,
+    installed: impl Fn(&str) -> bool,
+) -> Option<&'static [&'static str]> {
     const COSMIC: &[&str] = &["cosmic-settings", "wireless"];
     const KDE: &[&str] = &["systemsettings", "kcm_networkmanagement"];
     const OMARCHY: &[&str] = &["omarchy-launch-wifi"];
@@ -2792,7 +4140,9 @@ fn wifi_settings_command(desktop: Desktop, installed: impl Fn(&str) -> bool) -> 
     match desktop {
         Desktop::Cosmic => Some(COSMIC),
         Desktop::Kde => Some(KDE),
-        Desktop::Hyprland | Desktop::Other => [OMARCHY, NM, KDE, COSMIC].into_iter().find(|argv| installed(argv[0])),
+        Desktop::Hyprland | Desktop::Other => [OMARCHY, NM, KDE, COSMIC]
+            .into_iter()
+            .find(|argv| installed(argv[0])),
     }
 }
 
@@ -2801,7 +4151,8 @@ fn in_path(name: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::env::var_os("PATH").is_some_and(|path| {
         std::env::split_paths(&path).any(|dir| {
-            std::fs::metadata(dir.join(name)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            std::fs::metadata(dir.join(name))
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         })
     })
 }
@@ -2829,11 +4180,21 @@ mod tests {
     fn wifi_settings_follow_the_desktop() {
         let all = |_: &str| true;
         let none = |_: &str| false;
-        assert_eq!(wifi_settings_command(Desktop::Cosmic, none), Some(&["cosmic-settings", "wireless"][..]));
-        assert_eq!(wifi_settings_command(Desktop::Kde, none), Some(&["systemsettings", "kcm_networkmanagement"][..]));
-        assert_eq!(wifi_settings_command(Desktop::Hyprland, all), Some(&["omarchy-launch-wifi"][..]));
         assert_eq!(
-            wifi_settings_command(Desktop::Hyprland, |n| n == "nm-connection-editor" || n == "systemsettings"),
+            wifi_settings_command(Desktop::Cosmic, none),
+            Some(&["cosmic-settings", "wireless"][..])
+        );
+        assert_eq!(
+            wifi_settings_command(Desktop::Kde, none),
+            Some(&["systemsettings", "kcm_networkmanagement"][..])
+        );
+        assert_eq!(
+            wifi_settings_command(Desktop::Hyprland, all),
+            Some(&["omarchy-launch-wifi"][..])
+        );
+        assert_eq!(
+            wifi_settings_command(Desktop::Hyprland, |n| n == "nm-connection-editor"
+                || n == "systemsettings"),
             Some(&["nm-connection-editor"][..])
         );
         assert_eq!(
@@ -2847,19 +4208,68 @@ mod tests {
 
     #[test]
     fn esc_closes_the_innermost_thing_first() {
-        let all = EscState { shown: true, note: true, rename: true, fritz_form: true, menus: true, filter: true, settings: true };
+        let all = EscState {
+            shown: true,
+            note: true,
+            rename: true,
+            fritz_form: true,
+            menus: true,
+            filter: true,
+            settings: true,
+        };
         assert_eq!(esc_step(all), EscStep::Note);
         assert_eq!(esc_step(EscState { note: false, ..all }), EscStep::Rename);
-        assert_eq!(esc_step(EscState { note: false, rename: false, ..all }), EscStep::FritzForm);
-        let menus = EscState { shown: true, menus: true, filter: true, ..Default::default() };
+        assert_eq!(
+            esc_step(EscState {
+                note: false,
+                rename: false,
+                ..all
+            }),
+            EscStep::FritzForm
+        );
+        let menus = EscState {
+            shown: true,
+            menus: true,
+            filter: true,
+            ..Default::default()
+        };
         assert_eq!(esc_step(menus), EscStep::Menus);
-        assert_eq!(esc_step(EscState { menus: false, ..menus }), EscStep::Filter);
+        assert_eq!(
+            esc_step(EscState {
+                menus: false,
+                ..menus
+            }),
+            EscStep::Filter
+        );
         // The settings page: an open list first, then Back, then close.
-        let settings = EscState { shown: true, settings: true, menus: true, ..Default::default() };
+        let settings = EscState {
+            shown: true,
+            settings: true,
+            menus: true,
+            ..Default::default()
+        };
         assert_eq!(esc_step(settings), EscStep::Menus);
-        assert_eq!(esc_step(EscState { menus: false, ..settings }), EscStep::Back);
-        assert_eq!(esc_step(EscState { shown: true, ..Default::default() }), EscStep::Close);
+        assert_eq!(
+            esc_step(EscState {
+                menus: false,
+                ..settings
+            }),
+            EscStep::Back
+        );
+        assert_eq!(
+            esc_step(EscState {
+                shown: true,
+                ..Default::default()
+            }),
+            EscStep::Close
+        );
         // Not from the window or the open popup (e.g. the panel button): nothing.
-        assert_eq!(esc_step(EscState { shown: false, ..all }), EscStep::Nothing);
+        assert_eq!(
+            esc_step(EscState {
+                shown: false,
+                ..all
+            }),
+            EscStep::Nothing
+        );
     }
 }

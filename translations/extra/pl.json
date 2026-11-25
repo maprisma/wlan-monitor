@@ -25,5 +25,13 @@
   "Slightly rounded ({0} px)": "Lekko zaokrąglone ({0} px)",
   "Rounded ({0} px)": "Zaokrąglone ({0} px)",
   "Square": "Proste",
-  "Could not save the setting.": "Nie udało się zapisać ustawienia."
+  "Could not save the setting.": "Nie udało się zapisać ustawienia.",
+  "App skin": "Skórka aplikacji",
+  "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Wizualny akcent kart i obramowań; Natywny pozostawia motyw pulpitu bez zmian.",
+  "Native": "Natywny",
+  "Synthwave": "Synthwave",
+  "Cozy": "Przytulny",
+  "Terminal": "Terminal",
+  "Disco": "Disco",
+  "Zen": "Zen"
 }

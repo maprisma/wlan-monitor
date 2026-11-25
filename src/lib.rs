@@ -43,10 +43,11 @@ pub fn script_path(name: &str) -> Option<PathBuf> {
     dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
-pub mod i18n;
-pub mod shot;
 pub mod corners;
+pub mod i18n;
 pub mod look;
+pub mod shot;
+pub mod skin;
 
 #[cfg(test)]
 mod icon_tests {

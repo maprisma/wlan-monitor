@@ -25,5 +25,13 @@
   "Slightly rounded ({0} px)": "Ligeramente redondeadas ({0} px)",
   "Rounded ({0} px)": "Redondeadas ({0} px)",
   "Square": "Rectas",
-  "Could not save the setting.": "No se pudo guardar el ajuste."
+  "Could not save the setting.": "No se pudo guardar el ajuste.",
+  "App skin": "Estilo visual",
+  "Visual accent for cards and borders; Native keeps your desktop theme untouched.": "Acento visual para tarjetas y bordes; Nativo mantiene intacto el tema del escritorio.",
+  "Native": "Nativo",
+  "Synthwave": "Synthwave",
+  "Cozy": "Acogedor",
+  "Terminal": "Terminal",
+  "Disco": "Disco",
+  "Zen": "Zen"
 }
