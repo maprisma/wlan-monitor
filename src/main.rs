@@ -2199,11 +2199,16 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let sharp = self.core.window.sharp_corners;
         let ignore = || window_size::not_users_size(sharp);
         let size = if closing { self.resize.flush(ignore) } else { self.resize.due(std::time::Instant::now(), ignore) };
+        let resized = size.is_some();
         if let Some(size) = size {
             self.setting_error = write_pref(window_size::KEY, Some(window_size::to_value(size))).is_err();
         }
-        // Hyprland: where the user left it, for the next open (a move sends no event, so on close).
-        if closing && let Some(position) = window_size::current_position() {
+        // Hyprland: where the user left it, for the next open (a move sends no event, so after a
+        // settled resize and on close; written only when it changed).
+        if (resized || closing)
+            && let Some(position) = window_size::current_position()
+            && self.resize.moved(position)
+        {
             self.setting_error |= write_pref(window_size::POSITION_KEY, Some(window_size::position_value(position))).is_err();
         }
     }

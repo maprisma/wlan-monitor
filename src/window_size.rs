@@ -40,12 +40,13 @@ pub fn to_value(size: Size) -> Value {
 pub struct Debounce {
     pending: Option<(Size, Instant)>,
     saved: Option<Size>,
+    saved_position: Option<Position>,
 }
 
 impl Debounce {
     /// `start`: the size the window was opened with (not written again).
     pub fn new(start: Size) -> Self {
-        Self { pending: None, saved: clamp(start.0, start.1) }
+        Self { pending: None, saved: clamp(start.0, start.1), saved_position: None }
     }
 
     pub fn resized(&mut self, width: f32, height: f32, now: Instant) {
@@ -78,6 +79,17 @@ impl Debounce {
         }
         self.saved = Some(size);
         Some(size)
+    }
+
+    /// Whether `position` (Hyprland: where the window is now) differs from the one saved last,
+    /// remembering it; asked when a resize was saved or the window closes, so a resize from a top
+    /// or left edge (which moves the window) keeps its place even if the app never closes cleanly.
+    pub fn moved(&mut self, position: Position) -> bool {
+        if self.saved_position == Some(position) {
+            return false;
+        }
+        self.saved_position = Some(position);
+        true
     }
 }
 
@@ -283,6 +295,16 @@ mod tests {
         assert_eq!(d.flush(|| false), None);
         // Nothing to save: `ignore` is not asked (no hyprctl per tick).
         assert_eq!(d.due(start + SETTLE, || panic!("asked")), None);
+    }
+
+    #[test]
+    fn a_position_is_saved_only_when_it_changed() {
+        let mut d = Debounce::new((400.0, 860.0));
+        assert!(d.moved((10, 20)));
+        assert!(!d.moved((10, 20)));
+        assert!(d.moved((10, 21)));
+        assert!(d.moved((-5, 21)));
+        assert!(!d.moved((-5, 21)));
     }
 
     #[test]
