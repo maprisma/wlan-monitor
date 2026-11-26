@@ -1,10 +1,9 @@
+use maprisma_kit::look::Desktop;
+use maprisma_kit::{AppInfo, corners, look, shot, window_size};
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
-use maprisma_wlan_monitor::look::Desktop;
 use maprisma_wlan_monitor::skin::{
     SKIN_KEY, SKINS, active_theme, normalize_skin, skin_label, skin_style,
 };
-use maprisma_wlan_monitor::{corners, shot};
-mod window_size;
 // WLAN Monitor for COSMIC: a panel applet for the local WLAN. A dim radar while
 // disconnected; green while connected, blue while a VPN is active, with a thin
 // signal-quality line underneath. It pulses while the subnet is being scanned,
@@ -54,9 +53,9 @@ static SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-search")
 static RENAME_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-rename"));
 static FRITZ_USER_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-user"));
 static FRITZ_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-password"));
-static NOTE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-shot-note"));
+static NOTE_ID: LazyLock<Id> = LazyLock::new(Id::unique);
 // F12 pictures go to ~/Pictures/<this>/ (the app's name, the same in every language).
-const SHOT_FOLDER: &str = APP_NAME;
+const SHOT_APP: AppInfo = AppInfo::new(APP_ID, APP_NAME);
 const RADAR: &[u8] =
     include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
 const RADAR_OFF: &[u8] =
@@ -88,7 +87,7 @@ async fn close_running_window(bus: &str) {
 
 fn main() -> cosmic::iced::Result {
     if !std::env::args().any(|arg| arg == "--window") {
-        maprisma_wlan_monitor::look::keep_fonts();
+        look::keep_fonts();
         return cosmic::applet::run::<Monitor>(false);
     }
     let runtime = tokio::runtime::Runtime::new().expect("D-Bus runtime");
@@ -115,7 +114,7 @@ fn main() -> cosmic::iced::Result {
     };
     cosmic::app::run::<Monitor<true>>(
         cosmic::app::Settings::default()
-            .default_font(maprisma_wlan_monitor::look::default_font())
+            .default_font(look::default_font())
             .size({
                 let (width, height) = window_start_size();
                 cosmic::iced::Size::new(width, height)
@@ -1156,14 +1155,14 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     .clone()
                     .unwrap_or_else(cosmic::theme::system_preference),
             ),
-            cosmic::command::set_scaling_factor(maprisma_wlan_monitor::look::text_scale()),
+            cosmic::command::set_scaling_factor(look::text_scale()),
         ])
     }
 
     fn themed_window_content(&self) -> Element<'_, Message> {
         match self.cached_theme.clone() {
             Some(theme) => cosmic::iced::widget::themer(Some(theme), self.popup_content())
-                .background(maprisma_wlan_monitor::look::window_background)
+                .background(look::window_background)
                 .text_color(|t: &cosmic::Theme| t.cosmic().on_bg_color().into())
                 .into(),
             None => self.popup_content(),
@@ -1179,7 +1178,7 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                     self.shot = shot::Phase::Noting;
                     return off_thread(
                         move || {
-                            shot::save_note(&path, SHOT_FOLDER, &text)
+                            shot::save_note_for(&SHOT_APP, &path, &text)
                                 .map(|_| ())
                                 .map_err(|e| e.to_string())
                         },
@@ -1207,44 +1206,33 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     // After F12: "Screenshot saved", where, the optional note and Done (or the error and Done).
     fn shot_overlay(&self) -> Option<Element<'_, Message>> {
-        let body: Element<Message> = match &self.shot {
-            shot::Phase::Note {
-                shown, text: note, ..
-            } => column![
-                text::heading(tr("Screenshot saved")),
-                dim(trf("Saved as {0}", &[shown.clone()])),
-                text_input(tr("What is wrong? (optional)"), note.as_str())
-                    .id(NOTE_ID.clone())
-                    .on_input(Message::NoteInput)
-                    .on_submit(|_| Message::NoteDone),
-                row![
-                    space::horizontal().width(Length::Fill),
-                    button::suggested(tr("Done")).on_press(Message::NoteDone)
-                ],
-            ]
-            .spacing(12)
-            .into(),
-            shot::Phase::Error(reason) => column![
-                text::body(reason.clone()),
-                row![
-                    space::horizontal().width(Length::Fill),
-                    button::suggested(tr("Done")).on_press(Message::NoteDone)
-                ],
-            ]
-            .spacing(12)
-            .into(),
-            _ => return None,
+        let labels = shot::ShotLabels {
+            saved_heading: tr("Screenshot saved").to_string(),
+            saved_as_template: tr("Saved as {0}").to_string(),
+            note_placeholder: tr("What is wrong? (optional)").to_string(),
+            done_button: tr("Done").to_string(),
+            save_error_template: tr("The screenshot could not be saved: {0}").to_string(),
+            note_error_template: tr("The note could not be saved: {0}").to_string(),
         };
-        let card = container(body)
-            .padding(16)
-            .width(Length::Fill)
-            .class(if skin_style(&self.skin).is_some() { card_style(&self.skin) } else { theme::Container::Card });
-        let card = container(card).padding(12).width(if self.window_mode {
+        let style = if skin_style(&self.skin).is_some() {
+            card_style(&self.skin)
+        } else {
+            theme::Container::Card
+        };
+        let width = if self.window_mode {
             Length::Fill
         } else {
             Length::Fixed(POPUP_WIDTH)
-        });
-        Some(card.into())
+        };
+        shot::note_overlay(
+            &self.shot,
+            NOTE_ID.clone(),
+            &labels,
+            style,
+            width,
+            Message::NoteInput,
+            Message::NoteDone,
+        )
     }
 
     fn popup_content(&self) -> Element<'_, Message> {
@@ -3396,7 +3384,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
 
     fn init(core: Core, window_mode: bool) -> (Self, Task<Message>) {
         let mut core = core;
-        maprisma_wlan_monitor::look::solid(&mut core);
+        look::solid(&mut core);
         let mut app = Self {
             core,
             window_mode,
@@ -3541,7 +3529,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
                 let (width, height) = (picture.size.width, picture.size.height);
                 return off_thread(
-                    move || shot::save_screenshot(SHOT_FOLDER, &picture.rgba, width, height),
+                    move || shot::save_screenshot_for(&SHOT_APP, &picture.rgba, width, height),
                     Message::ShotSaved,
                 );
             }
@@ -3727,7 +3715,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
                 // The desktop's colours and corners (Maprisma Theme can change them any time);
                 // look::refresh re-reads at most every 5 s.
-                if maprisma_wlan_monitor::look::refresh() {
+                if look::refresh() {
                     self.rebuild_cached_theme();
                     return self.apply_window_theme();
                 }
@@ -3742,7 +3730,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                     self.save_size(true);
                     // A typed note is kept: written before the window goes.
                     if let shot::Phase::Note { path, text, .. } = std::mem::take(&mut self.shot) {
-                        let _ = shot::save_note(&path, SHOT_FOLDER, &text);
+                        let _ = shot::save_note_for(&SHOT_APP, &path, &text);
                     }
                     return cosmic::iced::exit();
                 }
@@ -3918,7 +3906,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             Message::OpenWifiSettings => {
                 // The applet runs only in COSMIC's panel; a window on whichever desktop it is on.
                 let desktop = if self.window_mode {
-                    maprisma_wlan_monitor::look::desktop()
+                    look::desktop()
                 } else {
                     Desktop::Cosmic
                 };
@@ -4001,7 +3989,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        maprisma_wlan_monitor::look::keep_fonts();
+        look::keep_fonts();
         if self.window_mode {
             return self.themed_window_content();
         }
@@ -4028,7 +4016,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
     }
 
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
-        maprisma_wlan_monitor::look::keep_fonts();
+        look::keep_fonts();
         if self.window_mode {
             return self.themed_window_content();
         }

@@ -1,6 +1,6 @@
 use maprisma_wlan_monitor::i18n::{self, tr};
 mod model;
-mod present;
+use maprisma_kit::present;
 use maprisma_wlan_monitor::{APP_NAME, ICON, WINDOW_BUS, icon_for, script_path};
 use model::Action;
 use std::{collections::HashMap, sync::Arc, time::Duration};

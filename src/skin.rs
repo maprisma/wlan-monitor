@@ -17,8 +17,8 @@ pub struct SkinStyle {
 }
 
 impl SkinStyle {
-    pub fn palette(&self) -> crate::look::Palette {
-        crate::look::Palette {
+    pub fn palette(&self) -> maprisma_kit::look::Palette {
+        maprisma_kit::look::Palette {
             accent: Some(self.accent_rgb),
             background: Some(self.window_bg),
             foreground: Some(self.foreground),
@@ -103,10 +103,13 @@ pub fn skin_label(skin: &str) -> &'static str {
 
 pub fn active_theme(skin: &str, corners_choice: &str) -> Option<cosmic::Theme> {
     if let Some(style) = skin_style(skin) {
-        let radius = crate::corners::radius(corners_choice, crate::corners::desktop_radius());
-        Some(crate::look::theme_from(&style.palette(), Some(radius)))
+        let radius = maprisma_kit::corners::radius(
+            corners_choice,
+            maprisma_kit::corners::desktop_radius(),
+        );
+        Some(maprisma_kit::look::theme_from(&style.palette(), Some(radius)))
     } else {
-        crate::corners::theme(corners_choice)
+        maprisma_kit::corners::theme(corners_choice)
     }
 }
 
@@ -196,7 +199,7 @@ mod tests {
             );
             assert_eq!(
                 style.palette(),
-                crate::look::Palette {
+                maprisma_kit::look::Palette {
                     accent: Some(accent),
                     background: Some(bg),
                     foreground: Some(fg),
