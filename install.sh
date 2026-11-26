@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Build and install Maprisma WLAN Monitor for the current user (no root needed):
+# Build (source tree) or copy (release tarball) and install Maprisma WLAN Monitor for the current user (no root needed):
 #   ~/.local/bin/maprisma-wlan-monitor                  the applet
-#   ~/.local/share/maprisma-wlan-monitor/scripts/       the collector (wlan-monitor.py)
-#   ~/.local/share/applications/…desktop              makes it an applet for the panel
-#   ~/.local/share/icons/hicolor/scalable/apps/…svg   the radar icon
+#   ~/.local/bin/maprisma-wlan-monitor-tray             the KDE/Hyprland tray
+#   ~/.local/bin/maprisma-wlan-mcp                      the local MCP server
+#   ~/.local/share/maprisma-wlan-monitor/scripts/       the collector, network monitor, Wi-Fi setup & MCP scripts
+#   ~/.local/share/applications/…desktop                makes it an applet for the panel
+#   ~/.local/share/icons/hicolor/scalable/apps/…svg     the radar icon
 # Then add it in COSMIC Settings › Desktop › Panel › Applets.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -11,10 +13,23 @@ id=io.github.ubruckhaus.CosmicMaprismaWlanMonitor
 data="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin="$HOME/.local/bin"
 
-cargo build --release
-install -Dm755 target/release/maprisma-wlan-monitor "$bin/maprisma-wlan-monitor"
-install -Dm755 target/release/maprisma-wlan-monitor-tray "$bin/maprisma-wlan-monitor-tray"
+# From the source tree: build. From a release tarball: use its prebuilt bin/ binaries.
+if [[ -f Cargo.toml ]]; then
+    cargo build --release
+    built=target/release
+elif [[ -x bin/maprisma-wlan-monitor && -x bin/maprisma-wlan-monitor-tray ]]; then
+    built=bin
+else
+    echo "No Cargo.toml and no prebuilt bin/ found next to install.sh." >&2
+    exit 1
+fi
+install -Dm755 "$built/maprisma-wlan-monitor" "$bin/maprisma-wlan-monitor"
+install -Dm755 "$built/maprisma-wlan-monitor-tray" "$bin/maprisma-wlan-monitor-tray"
 install -Dm644 scripts/wlan-monitor.py "$data/maprisma-wlan-monitor/scripts/wlan-monitor.py"
+install -Dm644 scripts/net_monitor.py "$data/maprisma-wlan-monitor/scripts/net_monitor.py"
+install -Dm644 scripts/wifi_setup.py "$data/maprisma-wlan-monitor/scripts/wifi_setup.py"
+install -Dm755 scripts/wlan-mcp.py "$data/maprisma-wlan-monitor/scripts/wlan-mcp.py"
+ln -sf "$data/maprisma-wlan-monitor/scripts/wlan-mcp.py" "$bin/maprisma-wlan-mcp"
 install -Dm644 "data/icons/$id-symbolic.svg" "$data/icons/hicolor/scalable/apps/$id-symbolic.svg"
 # The tray's radar: in the accent colour while connected, the plain rings while not.
 install -Dm644 "data/icons/$id-active-symbolic.svg" "$data/icons/hicolor/scalable/apps/$id-active-symbolic.svg"

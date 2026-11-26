@@ -43,7 +43,12 @@ pub fn script_path(name: &str) -> Option<PathBuf> {
     dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
+pub fn mcp_script_path() -> Option<PathBuf> {
+    script_path("wlan-mcp.py")
+}
+
 pub mod i18n;
+pub mod netmon;
 pub mod skin;
 
 #[cfg(test)]

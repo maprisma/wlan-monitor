@@ -18,9 +18,21 @@ English only.
     groups fold with a click, **+** / **−** open or fold all.
   - **Network map:** Internet › router › groups › devices, repeaters as their own branches, link speed and
     signal bars per device; a click on a device opens it on the Devices page.
+  - **Network Monitor:** real-time per-process and per-connection monitor (`ss` / `/proc/net` without root),
+    live 30-sample throughput sparkline, **Connections / By app / Interfaces** views, protocol (`TCP` / `UDP`),
+    state & scope (`Active`, `Listening`, `External`, `LAN`, `Local`) filters, search by app/host/IP/port/PID,
+    sorting, optional reverse-DNS hostname lookup, pause/resume, and Markdown table copy.
+  - **Network & Wi-Fi Setup:** toggle Wi-Fi radio, scan available Wi-Fi networks with signal/band/channel/security,
+    connect to open or secured networks using a private `0700`/`0600` `passwd-file` (never passing passwords on
+    the command line), manage saved Wi-Fi profiles (connect, disconnect, change password, forget) with automatic
+    re-prompting on wrong password, plus wired Ethernet and VPN toggles.
+  - **Local MCP Server (`--mcp` / `maprisma-wlan-mcp`):** zero-dependency stdio JSON-RPC 2.0
+    [Model Context Protocol](https://modelcontextprotocol.io) server exposing WLAN status, discovered devices,
+    live Network Monitor connections & interfaces, and safe Wi-Fi/network actions to AI agents. FRITZ!Box
+    credentials and Wi-Fi passwords are never exposed.
   - **New-device alerts** on trusted networks (a desktop notification from the collector and a NEW badge),
     **All known**, the **New-device alerts** switch.
-  - **Rescan**, **Router** (its web page), **Trust / Untrust**, and COSMIC Settings' Wi-Fi page.
+  - **Rescan**, **Router** (its web page), **Trust / Untrust**, and direct link to system network settings.
   - When a VPN blocks the home network: which one, and how to allow it (with a copyable command).
 
 The collector `scripts/wlan-monitor.py` is the unchanged one from the Omarchy widget, so device names, pins,

@@ -510,7 +510,7 @@ class DeviceCommandTests(unittest.TestCase):
         self.assertEqual(parse('{"cmd":"shell","mac":"aa:bb:cc:dd:ee:ff"}'), "")
         self.assertEqual(parse('{"cmd":"pin"'), "")
         self.assertEqual(parse("[1]"), "")
-        self.assertEqual(parse('{"cmd":"pin","mac":"aa:bb:cc:dd:ee:ff","pad":"' + "x" * 1100 + '"}'), "")
+        self.assertEqual(parse('{"cmd":"pin","mac":"aa:bb:cc:dd:ee:ff","pad":"' + "x" * (wlan_monitor.MAX_COMMAND_BYTES + 100) + '"}'), "")
         self.assertEqual(parse("known_all"), "known_all")
 
 

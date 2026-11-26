@@ -1,6 +1,10 @@
 use maprisma_kit::look::Desktop;
 use maprisma_kit::{AppInfo, corners, look, shot, window_size};
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
+use maprisma_wlan_monitor::netmon::{
+    MonitorSort, MonitorView, NetMonFilters, ProtoFilter, ScopeFilter, conn_id, conn_proto,
+    connections_markdown, filter_connections, preferred_remote, wifi_password_valid,
+};
 use maprisma_wlan_monitor::skin::{
     SKIN_KEY, SKINS, active_theme, normalize_skin, skin_label, skin_style,
 };
@@ -50,6 +54,9 @@ const APP_ID: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor";
 const WINDOW_APP_ID: &str = "io.github.ubruckhaus.CosmicMaprismaWlanMonitor.Window";
 static AUTOSIZE_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-autosize"));
 static SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-search"));
+static NETMON_SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-netmon-search"));
+static WIFI_SEARCH_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-wifi-search"));
+static WIFI_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-wifi-password"));
 static RENAME_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-rename"));
 static FRITZ_USER_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-user"));
 static FRITZ_PASSWORD_ID: LazyLock<Id> = LazyLock::new(|| Id::new("wlan-monitor-fritz-password"));
@@ -60,11 +67,15 @@ const RADAR: &[u8] =
     include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-symbolic.svg");
 const RADAR_OFF: &[u8] =
     include_bytes!("../data/icons/io.github.ubruckhaus.CosmicMaprismaWlanMonitor-off-symbolic.svg");
+// Symbolic SVG icons embedded so tabs and device rows render crisply on every icon theme
+// (Breeze, Adwaita, COSMIC, Papirus) with zero missing glyphs.
+const MONITOR_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="#bebebe" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M1.5 9.5h2.7l1.8-5.5 2.5 8 2-4.5 1.5 2h2.5"/></svg>"##;
+const SETUP_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="#bebebe" stroke-width="1.5" stroke-linecap="round" d="M2 6.2a8.5 8.5 0 0 1 12 0M4.5 9a5 5 0 0 1 7 0"/><circle cx="8" cy="12" r="1.4" fill="#bebebe"/><path fill="none" stroke="#bebebe" stroke-width="1.4" stroke-linecap="round" d="M11.6 10.6l2.6 2.6"/></svg>"##;
+const LIGHT_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="#bebebe" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" d="M8 2.2a4 4 0 0 0-2.2 7.3c.5.4.8 1 .8 1.7h2.8c0-.7.3-1.3.8-1.7A4 4 0 0 0 8 2.2zM6.4 13.3h3.2"/></svg>"##;
 
 const RESTART_DELAY: Duration = Duration::from_secs(5); // before a collector that exited starts again
-const POPUP_WIDTH: f32 = 440.0;
+const POPUP_WIDTH: f32 = 460.0;
 const POPUP_MAX_HEIGHT: f32 = 780.0;
-const LIST_MAX_HEIGHT: f32 = 420.0;
 const CLIPBOARD_LIMIT: usize = 262144;
 const FLASH: Duration = Duration::from_millis(1500);
 
@@ -86,6 +97,17 @@ async fn close_running_window(bus: &str) {
 }
 
 fn main() -> cosmic::iced::Result {
+    if std::env::args().any(|arg| arg == "--mcp") {
+        if let Some(script) = maprisma_wlan_monitor::mcp_script_path() {
+            let status = std::process::Command::new("python3")
+                .arg("-I")
+                .arg(&script)
+                .status();
+            std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
+        }
+        eprintln!("MCP server script (wlan-mcp.py) not found.");
+        std::process::exit(1);
+    }
     if !std::env::args().any(|arg| arg == "--window") {
         look::keep_fonts();
         return cosmic::applet::run::<Monitor>(false);
@@ -141,9 +163,11 @@ enum EscStep {
     Rename,
     /// Close the FRITZ!Box login form.
     FritzForm,
+    /// Close the Wi-Fi password form.
+    WifiForm,
     /// Close the open Language / Corners / view list.
     Menus,
-    /// Clear the device search.
+    /// Clear the device or network-monitor search filter.
     Filter,
     /// Leave the settings page.
     Back,
@@ -159,6 +183,7 @@ struct EscState {
     note: bool,
     rename: bool,
     fritz_form: bool,
+    wifi_form: bool,
     menus: bool,
     filter: bool,
     settings: bool,
@@ -173,6 +198,8 @@ fn esc_step(state: EscState) -> EscStep {
         EscStep::Rename
     } else if state.fritz_form {
         EscStep::FritzForm
+    } else if state.wifi_form {
+        EscStep::WifiForm
     } else if state.menus {
         EscStep::Menus
     } else if state.filter {
@@ -320,7 +347,7 @@ fn kind_icon(kind: &str) -> &'static str {
         "printer" => "printer-symbolic",
         "console" => "input-gaming-symbolic",
         "camera" => "camera-web-symbolic",
-        "light" => "night-light-symbolic",
+        "light" => "weather-clear-symbolic",
         "nas" => "drive-harddisk-symbolic",
         "appliance" => "application-x-appliance-symbolic",
         "smarthome" => "user-home-symbolic",
@@ -868,6 +895,20 @@ fn small_icon<'a>(name: &'static str, size: u16) -> Element<'a, Message> {
         .into()
 }
 
+fn svg_handle(bytes: &'static [u8]) -> icon::Handle {
+    let mut handle = icon::from_svg_bytes(bytes);
+    handle.symbolic = true;
+    handle
+}
+
+fn kind_icon_widget<'a>(kind: &str, size: u16) -> Element<'a, Message> {
+    if kind == "light" {
+        icon::icon(svg_handle(LIGHT_SVG)).size(size).into()
+    } else {
+        small_icon(kind_icon(kind), size)
+    }
+}
+
 // A small text action (icon + words).
 fn link<'a>(
     icon_name: &'static str,
@@ -990,6 +1031,15 @@ struct MapRow {
 
 // ------------------------------------------------------------------------- applet
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Page {
+    #[default]
+    Devices,
+    Map,
+    Monitor,
+    Setup,
+}
+
 #[derive(Default)]
 struct Monitor<const WINDOW_MODE: bool = false> {
     core: Core,
@@ -1005,6 +1055,7 @@ struct Monitor<const WINDOW_MODE: bool = false> {
     rescan_pending: bool, // the user asked for a rescan, waiting for the result
     pulse_dim: bool,
     local_view: Option<Value>,
+    page: Page,
     expanded: String,
     editing: String,
     edit_draft: String,
@@ -1023,6 +1074,25 @@ struct Monitor<const WINDOW_MODE: bool = false> {
     fritz_password_visible: bool,
     fritz_help_open: bool,
     flash: HashMap<String, std::time::Instant>,
+    // Network Monitor page state
+    netmon: Value,
+    netmon_filters: NetMonFilters,
+    netmon_view: MonitorView,
+    netmon_paused: bool,
+    netmon_resolve: bool,
+    netmon_expanded: String,
+    // Network & Wi-Fi Setup page state
+    wifi_state: Value,
+    wifi_scanning: bool,
+    wifi_busy: bool,
+    wifi_search: String,
+    wifi_form_open: bool,
+    wifi_form_ssid: String,
+    wifi_form_uuid: String,
+    wifi_form_note: String,
+    wifi_password: String,
+    wifi_password_visible: bool,
+    wifi_status: Option<(bool, String)>,
     // F12: the note's state, whether a capture is on its way, the settings.
     shot: shot::Phase,
     capturing: bool,
@@ -1049,6 +1119,7 @@ enum Message {
     Pulse,
     Tick,
     WindowTick,
+    SetPage(Page),
     Rescan,
     SetTrusted(bool),
     Alerts(bool),
@@ -1083,6 +1154,34 @@ enum Message {
     FritzConnect,
     FritzCancel,
     FritzHelp,
+    // Network Monitor page messages
+    NetMonView(MonitorView),
+    NetMonSearch(String),
+    NetMonProto(ProtoFilter),
+    NetMonScope(ScopeFilter),
+    NetMonSortNext,
+    NetMonClearFilters,
+    NetMonTogglePause,
+    NetMonToggleResolve,
+    NetMonToggleConn(String),
+    NetMonFilterByApp(String),
+    NetMonCopyConn(String),
+    NetMonCopyTable,
+    // Network & Wi-Fi Setup page messages
+    WifiScan(bool),
+    WifiRadio(bool),
+    WifiSearch(String),
+    WifiConnectKnown(String, String),
+    WifiConnectVisible(String, bool),
+    WifiChangePassword(String, String),
+    WifiPasswordInput(String),
+    WifiPasswordVisible,
+    WifiSubmitPassword,
+    WifiCancelPassword,
+    WifiDisconnect(String),
+    WifiForget(String),
+    ConnToggle(String, bool),
+    // F12 & settings
     ShotKey(window::Id),
     Escape(window::Id),
     Captured(window::Screenshot),
@@ -1239,20 +1338,15 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if let Some(overlay) = self.shot_overlay() {
             return overlay;
         }
-        let body =
-            scrollable(container(self.panel()).padding([12, 16])).height(if self.window_mode {
-                Length::Fill
-            } else {
-                Length::Shrink
-            });
+        // Single-scrollbar layout: header, tabs and footer stay fixed while only the active
+        // page body scrolls — never two nested scrollbars side by side.
+        let inner = container(self.panel()).padding([12, 16]);
         if self.window_mode {
-            container(body)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
+            inner.width(Length::Fill).height(Length::Fill).into()
         } else {
-            column![container(body).max_height(POPUP_MAX_HEIGHT)]
+            inner
                 .width(Length::Fixed(POPUP_WIDTH))
+                .max_height(POPUP_MAX_HEIGHT)
                 .into()
         }
     }
@@ -1322,10 +1416,6 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         } else {
             &["list", "platform", "type"]
         }
-    }
-
-    fn map_page(&self) -> bool {
-        self.collapsed().iter().any(|c| c == "mappage")
     }
 
     fn info_open(&self) -> bool {
@@ -1963,23 +2053,56 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
     }
 
     fn tabs(&self) -> Element<'_, Message> {
-        let map = self.map_page();
+        let tab = |label: &'static str,
+                   tip: &'static str,
+                   leading: icon::Handle,
+                   target: Page|
+         -> Element<'_, Message> {
+            let active = self.page == target;
+            cosmic::widget::tooltip(
+                choice(label, active)
+                    .leading_icon(leading)
+                    .on_press_maybe((!active).then_some(Message::SetPage(target))),
+                text::body(tip),
+                cosmic::widget::tooltip::Position::Bottom,
+            )
+            .into()
+        };
         let tabs = row![
-            choice(tr("Devices"), !map)
-                .leading_icon(icon::from_name("view-list-symbolic").size(16).handle())
-                .on_press_maybe(map.then(|| Message::ToggleGroup("mappage".into()))),
-            choice(tr("Network map"), map)
-                .leading_icon(
-                    icon::from_name("network-workgroup-symbolic")
-                        .size(16)
-                        .handle()
-                )
-                .on_press_maybe((!map).then(|| Message::ToggleGroup("mappage".into()))),
+            tab(
+                tr("Devices"),
+                tr("Devices"),
+                icon::from_name("view-list-symbolic").size(16).handle(),
+                Page::Devices,
+            ),
+            tab(
+                tr("Map"),
+                tr("Network map"),
+                icon::from_name("network-workgroup-symbolic")
+                    .size(16)
+                    .handle(),
+                Page::Map,
+            ),
+            tab(
+                tr("Monitor"),
+                tr("Network Monitor"),
+                svg_handle(MONITOR_SVG),
+                Page::Monitor,
+            ),
+            tab(
+                tr("Setup"),
+                tr("Network & Wi-Fi Setup"),
+                svg_handle(SETUP_SVG),
+                Page::Setup,
+            ),
         ]
-        .spacing(8);
+        .spacing(4)
+        .wrap();
         if skin_style(&self.skin).is_some() {
             container(tabs).padding(4).class(card_style(&self.skin)).into()
-        } else { tabs.into() }
+        } else {
+            tabs.into()
+        }
     }
 
     fn notices(&self) -> Vec<Element<'_, Message>> {
@@ -2370,7 +2493,67 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         let hidden = n(&self.stats, "hidden_count") as usize;
         let new_count = n(&self.stats, "new_count") as usize;
         let active = self.active();
-        let mut page = column![self.connection(), divider::horizontal::default()].spacing(8);
+        let mut page = column![self.connection()].spacing(8);
+
+        if !active && self.stats.is_object() {
+            let wifi_device = self
+                .stats
+                .get("wifi_device")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let wifi_on = self
+                .wifi_state
+                .get("wifi_on")
+                .and_then(Value::as_bool)
+                .or_else(|| self.stats.get("wifi_on").and_then(Value::as_bool))
+                .unwrap_or(true);
+            let reason = if wifi_device && !wifi_on {
+                tr("Wi-Fi is turned off. Turn it on or open Network & Wi-Fi Setup to connect.")
+            } else {
+                tr("This PC is not connected to a Wi-Fi or wired network yet. Open Network & Wi-Fi Setup to pick a network and connect.")
+            };
+            let mut actions = Row::new().spacing(8).align_y(Alignment::Center);
+            if wifi_device && !wifi_on {
+                actions = actions.push(
+                    button::suggested(tr("Turn Wi-Fi on"))
+                        .leading_icon(icon::from_name("network-wireless-symbolic").size(16).handle())
+                        .on_press_maybe((!self.wifi_busy).then_some(Message::WifiRadio(true))),
+                );
+            }
+            actions = actions.push(
+                if wifi_device && !wifi_on {
+                    button::standard(tr("Network & Wi-Fi Setup"))
+                } else {
+                    button::suggested(tr("Connect to Wi-Fi"))
+                }
+                .leading_icon(svg_handle(SETUP_SVG))
+                .on_press(Message::SetPage(Page::Setup)),
+            );
+            page = page.push(
+                container(
+                    column![
+                        row![
+                            small_icon("network-wireless-symbolic", 16),
+                            text::heading(tr("Not connected")),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                        dim(reason),
+                        actions.wrap(),
+                    ]
+                    .spacing(8),
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .class(if skin_style(&self.skin).is_some() {
+                    card_style(&self.skin)
+                } else {
+                    notice(Tone::Info)
+                }),
+            );
+        }
+
+        page = page.push(divider::horizontal::default());
 
         let foldable = self.view_mode() != "list" && self.filter.is_empty();
         let ids = self.list_fold_ids();
@@ -2463,8 +2646,8 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if entries.is_empty() && !self.filter.is_empty() {
             list = list.push(dim(trf("No device matches “{0}”.", &[self.filter.clone()])));
         }
-        page = page
-            .push(container(scrollable(list).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT));
+        // No nested scrollable here — the outer panel body provides one single scrollbar.
+        page = page.push(list);
 
         let mut footer = Row::new().spacing(8);
         if !self.devices.is_empty() {
@@ -2565,7 +2748,7 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         if editing {
             block = block.push(
                 row![
-                    small_icon(kind_icon(s(dev, "kind")), 18),
+                    kind_icon_widget(s(dev, "kind"), 18),
                     text_input(
                         if s(dev, "auto_name").is_empty() {
                             tr("Device name")
@@ -2588,7 +2771,7 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 .padding([0, 0, 0, 26]),
             );
         } else {
-            let mut main = row![small_icon(kind_icon(s(dev, "kind")), 18)]
+            let mut main = row![kind_icon_widget(s(dev, "kind"), 18)]
                 .spacing(8)
                 .align_y(Alignment::Center);
             let name = s(dev, "name").to_string();
@@ -2832,9 +3015,8 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         for row_data in self.map_rows() {
             tree = tree.push(self.map_row(row_data));
         }
-        page = page.push(
-            container(scrollable(tree).height(Length::Shrink)).max_height(LIST_MAX_HEIGHT + 120.0),
-        );
+        // No nested scrollable here — the outer panel body provides one single scrollbar.
+        page = page.push(tree);
         if !self.mesh_active() {
             page = page.push(dim(if b(self.fritz(), "available") {
                 tr("Connect your FRITZ!Box (Devices page, click the network line) to see the band, speed and signal of every device.")
@@ -2921,16 +3103,18 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
                 )
             }
         };
-        let mut content = row![small_icon(
-            glyph,
-            if matches!(r.kind, MapKind::Internet | MapKind::Ap { .. }) {
-                18
-            } else {
-                16
-            }
-        )]
-        .spacing(8)
-        .align_y(Alignment::Center);
+        let icon_size = if matches!(r.kind, MapKind::Internet | MapKind::Ap { .. }) {
+            18
+        } else {
+            16
+        };
+        let leading_icon = match (&r.kind, dev) {
+            (MapKind::Device, Some(d)) => kind_icon_widget(s(d, "kind"), icon_size),
+            _ => small_icon(glyph, icon_size),
+        };
+        let mut content = row![leading_icon]
+            .spacing(8)
+            .align_y(Alignment::Center);
         let label: Element<Message> = if strong {
             text::heading(label).width(Length::Fill).into()
         } else if online {
@@ -2995,54 +3179,1061 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             .into()
     }
 
-    fn footer(&self) -> Element<'_, Message> {
-        let gateway_url = self
-            .gateway()
-            .map(|g| s(g, "web_url"))
-            .filter(|u| !u.is_empty());
-        let mut buttons = Row::new().spacing(8).align_y(Alignment::Center);
-        buttons = buttons.push(
-            button::standard(tr("Rescan"))
-                .leading_icon(icon::from_name("view-refresh-symbolic").size(16).handle())
-                .on_press_maybe((!self.scanning()).then_some(Message::Rescan)),
-        );
-        if let Some(url) = gateway_url {
-            buttons = buttons.push(
-                button::standard(tr("Router"))
-                    .leading_icon(
-                        icon::from_name("network-wireless-symbolic")
-                            .size(16)
-                            .handle(),
-                    )
-                    .on_press(Message::OpenWeb(url.to_string())),
+    // ------------------------------------------------------------------ Network Monitor page
+
+    fn sort_label(sort: MonitorSort) -> &'static str {
+        match sort {
+            MonitorSort::Traffic => tr("Traffic"),
+            MonitorSort::Process => tr("App"),
+            MonitorSort::State => tr("State"),
+            MonitorSort::Remote => tr("Remote"),
+            MonitorSort::Port => tr("Port"),
+        }
+    }
+
+    fn sparkline<'a>(&self, history: &[Value]) -> Element<'a, Message> {
+        let mut peaks: Vec<(f64, f64)> = history
+            .iter()
+            .rev()
+            .take(30)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|h| (n(h, "rx_rate"), n(h, "tx_rate")))
+            .collect();
+        while peaks.len() < 30 {
+            peaks.insert(0, (0.0, 0.0));
+        }
+        let max_rate = peaks
+            .iter()
+            .map(|(rx, tx)| rx + tx)
+            .fold(1024.0_f64, f64::max);
+        let mut bars = Row::new().spacing(2).align_y(Alignment::End);
+        for (rx, tx) in peaks {
+            let total = rx + tx;
+            let frac = if total <= 0.0 {
+                0.04
+            } else {
+                (total / max_rate).clamp(0.08, 1.0)
+            };
+            let height = (frac * 34.0).max(2.0) as f32;
+            let tone = if tx > rx && total > 0.0 {
+                Tone::Info
+            } else if total > 0.0 {
+                Tone::Ok
+            } else {
+                Tone::Info
+            };
+            let style = if total > 0.0 {
+                tone_fill(tone, small().min(2.0))
+            } else {
+                track(small().min(2.0))
+            };
+            bars = bars.push(
+                container(space::horizontal())
+                    .width(Length::Fill)
+                    .height(Length::Fixed(height))
+                    .class(style),
             );
         }
+        container(bars)
+            .width(Length::Fill)
+            .height(Length::Fixed(38.0))
+            .align_y(Alignment::End)
+            .padding([2, 0])
+            .into()
+    }
+
+    fn monitor_page(&self) -> Element<'_, Message> {
+        let nm = &self.netmon;
+        let summary = nm.get("summary").unwrap_or(&Value::Null);
+        let history = arr(nm, "history");
+        let connections = arr(nm, "connections");
+        let processes = arr(nm, "processes");
+        let interfaces = arr(nm, "interfaces");
+        let dns = arr(nm, "dns");
+
+        let mut page = column![].spacing(10);
+
+        // Live summary & sparkline card
+        let total_conns = n(summary, "total") as usize;
+        let estab = n(summary, "established") as usize;
+        let listening = n(summary, "listening") as usize;
+        let external = n(summary, "external") as usize;
+        let rx_rate = num(summary, "rx_rate");
+        let tx_rate = num(summary, "tx_rate");
+
+        let mut summary_col = column![
+            row![
+                text::heading(tr("Live traffic")),
+                space::horizontal().width(Length::Fill),
+                text::caption(format!(
+                    "↓ {}  ·  ↑ {}",
+                    format_rate(rx_rate),
+                    format_rate(tx_rate)
+                )),
+            ]
+            .align_y(Alignment::Center),
+            self.sparkline(history),
+            row![
+                dim(trf(
+                    "{0} active · {1} listening · {2} external",
+                    &[estab.to_string(), listening.to_string(), external.to_string()]
+                )),
+                space::horizontal().width(Length::Fill),
+                dim(if self.netmon_paused {
+                    tr("Paused").to_string()
+                } else {
+                    trf("{0} total", &[total_conns.to_string()])
+                }),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(6);
+
+        let controls = row![
+            choice(tr("Connections"), self.netmon_view == MonitorView::Connections)
+                .on_press(Message::NetMonView(MonitorView::Connections)),
+            choice(tr("By app"), self.netmon_view == MonitorView::ByApp)
+                .on_press(Message::NetMonView(MonitorView::ByApp)),
+            choice(tr("Interfaces"), self.netmon_view == MonitorView::Interfaces)
+                .on_press(Message::NetMonView(MonitorView::Interfaces)),
+            space::horizontal().width(Length::Fill),
+            cosmic::widget::tooltip(
+                icon_button(
+                    if self.netmon_paused {
+                        "media-playback-start-symbolic"
+                    } else {
+                        "media-playback-pause-symbolic"
+                    },
+                    Some(Message::NetMonTogglePause),
+                ),
+                text::body(if self.netmon_paused {
+                    tr("Resume live updates")
+                } else {
+                    tr("Pause live updates")
+                }),
+                cosmic::widget::tooltip::Position::Bottom,
+            ),
+            cosmic::widget::tooltip(
+                button::text(if self.netmon_resolve {
+                    tr("DNS: On")
+                } else {
+                    tr("DNS: Off")
+                })
+                .on_press(Message::NetMonToggleResolve),
+                text::body(tr("Resolve remote IP addresses to hostnames")),
+                cosmic::widget::tooltip::Position::Bottom,
+            ),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .wrap();
+
+        summary_col = summary_col.push(controls);
+        page = page.push(
+            container(summary_col)
+                .padding(10)
+                .width(Length::Fill)
+                .class(card_style(&self.skin)),
+        );
+
+        // Search & filter toolbar (shown on Connections and By App views)
+        if self.netmon_view != MonitorView::Interfaces {
+            page = page.push(
+                text_input(
+                    tr("Filter by app, host, IP, port or PID…"),
+                    self.netmon_filters.search.as_str(),
+                )
+                .id(NETMON_SEARCH_ID.clone())
+                .leading_icon(small_icon("system-search-symbolic", 16))
+                .on_input(|v| Message::NetMonSearch(v.chars().take(64).collect())),
+            );
+        }
+
+        match self.netmon_view {
+            MonitorView::Connections => {
+                // Protocol + Scope/State filter pills + Sort button
+                let proto_row = row![
+                    choice(tr("All"), self.netmon_filters.proto == ProtoFilter::All)
+                        .on_press(Message::NetMonProto(ProtoFilter::All)),
+                    choice("TCP", self.netmon_filters.proto == ProtoFilter::Tcp)
+                        .on_press(Message::NetMonProto(ProtoFilter::Tcp)),
+                    choice("UDP", self.netmon_filters.proto == ProtoFilter::Udp)
+                        .on_press(Message::NetMonProto(ProtoFilter::Udp)),
+                    space::horizontal().width(Length::Fill),
+                    button::text(trf(
+                        "Sort: {0}",
+                        &[Self::sort_label(self.netmon_filters.sort).into()]
+                    ))
+                    .on_press(Message::NetMonSortNext),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .wrap();
+
+                let scope_row = row![
+                    choice(tr("All"), self.netmon_filters.scope == ScopeFilter::All)
+                        .on_press(Message::NetMonScope(ScopeFilter::All)),
+                    choice(
+                        tr("Active"),
+                        self.netmon_filters.scope == ScopeFilter::Active
+                    )
+                    .on_press(Message::NetMonScope(ScopeFilter::Active)),
+                    choice(
+                        tr("Listening"),
+                        self.netmon_filters.scope == ScopeFilter::Listening
+                    )
+                    .on_press(Message::NetMonScope(ScopeFilter::Listening)),
+                    choice(
+                        tr("External"),
+                        self.netmon_filters.scope == ScopeFilter::External
+                    )
+                    .on_press(Message::NetMonScope(ScopeFilter::External)),
+                    choice("LAN", self.netmon_filters.scope == ScopeFilter::Lan)
+                        .on_press(Message::NetMonScope(ScopeFilter::Lan)),
+                    choice(
+                        tr("Local"),
+                        self.netmon_filters.scope == ScopeFilter::Loopback
+                    )
+                    .on_press(Message::NetMonScope(ScopeFilter::Loopback)),
+                ]
+                .spacing(4)
+                .wrap();
+
+                page = page.push(proto_row);
+                page = page.push(scope_row);
+
+                let filtered = filter_connections(connections, &self.netmon_filters);
+                let mut count_row = row![dim(trf(
+                    "Showing {0} of {1} connections",
+                    &[filtered.len().to_string(), connections.len().to_string()]
+                ))]
+                .spacing(8)
+                .align_y(Alignment::Center);
+                count_row = count_row.push(space::horizontal().width(Length::Fill));
+                if self.netmon_filters.is_filtered() {
+                    count_row = count_row.push(
+                        button::text(tr("Clear filters")).on_press(Message::NetMonClearFilters),
+                    );
+                }
+                page = page.push(count_row);
+
+                if nm.is_null() {
+                    page = page.push(dim(tr("Collecting live connections…")));
+                } else if filtered.is_empty() {
+                    page = page.push(dim(tr("No connections match the current filters.")));
+                } else {
+                    let mut list = column![].spacing(4);
+                    for &idx in filtered.iter().take(150) {
+                        list = list.push(self.connection_row(&connections[idx]));
+                    }
+                    if filtered.len() > 150 {
+                        list = list.push(dim(trf(
+                            "Showing first 150 of {0} connections. Use search or filters to narrow down.",
+                            &[filtered.len().to_string()]
+                        )));
+                    }
+                    page = page.push(list);
+                }
+            }
+            MonitorView::ByApp => {
+                let q = self.netmon_filters.search.trim().to_lowercase();
+                let mut shown = 0usize;
+                let mut list = column![].spacing(4);
+                for proc_val in processes {
+                    let name = s(proc_val, "name");
+                    if !q.is_empty() && !name.to_lowercase().contains(&q) {
+                        continue;
+                    }
+                    shown += 1;
+                    let conns_n = n(proc_val, "connections") as usize;
+                    let ext_n = n(proc_val, "external") as usize;
+                    let lan_n = n(proc_val, "lan") as usize;
+                    let listen_n = n(proc_val, "listening") as usize;
+                    let rx_r = num(proc_val, "rx_rate");
+                    let tx_r = num(proc_val, "tx_rate");
+                    let rx_b = n(proc_val, "rx_bytes");
+                    let tx_b = n(proc_val, "tx_bytes");
+
+                    let right = if rx_r.unwrap_or(0.0) + tx_r.unwrap_or(0.0) > 0.0 {
+                        format!("↓ {} · ↑ {}", format_rate(rx_r), format_rate(tx_r))
+                    } else if rx_b + tx_b > 0.0 {
+                        format!("↓ {} · ↑ {}", format_bytes(rx_b), format_bytes(tx_b))
+                    } else {
+                        trf("{0} conn.", &[conns_n.to_string()])
+                    };
+                    let mut sub_parts = vec![trf("{0} connections", &[conns_n.to_string()])];
+                    if ext_n > 0 {
+                        sub_parts.push(trf("{0} external", &[ext_n.to_string()]));
+                    }
+                    if lan_n > 0 {
+                        sub_parts.push(format!("{lan_n} LAN"));
+                    }
+                    if listen_n > 0 {
+                        sub_parts.push(trf("{0} listening", &[listen_n.to_string()]));
+                    }
+                    let label = if name.is_empty() {
+                        tr("System / other").to_string()
+                    } else {
+                        name.to_string()
+                    };
+                    let row_body = column![
+                        row![
+                            small_icon("application-x-executable-symbolic", 16),
+                            text::heading(label.clone()).width(Length::Fill),
+                            accent(right),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                        container(dim(sub_parts.join("  ·  "))).padding([0, 0, 0, 24]),
+                    ]
+                    .spacing(2);
+                    let click_target = if name.is_empty() {
+                        None
+                    } else {
+                        Some(Message::NetMonFilterByApp(name.to_string()))
+                    };
+                    list = list.push(
+                        button::custom(row_body)
+                            .padding([6, 8])
+                            .width(Length::Fill)
+                            .class(theme::Button::MenuItem)
+                            .on_press_maybe(click_target),
+                    );
+                }
+                if shown == 0 {
+                    list = list.push(dim(if nm.is_null() {
+                        tr("Collecting live connections…")
+                    } else {
+                        tr("No apps match the current filter.")
+                    }));
+                }
+                page = page.push(list);
+            }
+            MonitorView::Interfaces => {
+                if interfaces.is_empty() {
+                    page = page.push(dim(tr("Collecting interface statistics…")));
+                } else {
+                    let mut list = column![].spacing(8);
+                    for iface in interfaces {
+                        let name = s(iface, "name");
+                        let kind = s(iface, "kind");
+                        let state = s(iface, "state");
+                        let ip = s(iface, "ip");
+                        let ipv6 = s(iface, "ipv6");
+                        let mac = s(iface, "mac");
+                        let icon_name = match kind {
+                            "wifi" => "network-wireless-symbolic",
+                            "ethernet" => "network-wired-symbolic",
+                            "vpn" => "network-vpn-symbolic",
+                            _ => "network-server-symbolic",
+                        };
+                        let mut card = column![
+                            row![
+                                small_icon(icon_name, 16),
+                                text::heading(name.to_string()).width(Length::Fill),
+                                if state == "up" {
+                                    accent(tr("UP"))
+                                } else {
+                                    dim(tr("DOWN"))
+                                },
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                            dim(format!(
+                                "↓ {}  ·  ↑ {}   ({} / {})",
+                                format_rate(num(iface, "rx_rate")),
+                                format_rate(num(iface, "tx_rate")),
+                                format_bytes(n(iface, "rx_bytes")),
+                                format_bytes(n(iface, "tx_bytes")),
+                            )),
+                        ]
+                        .spacing(4);
+                        let mut meta = Vec::new();
+                        if !ip.is_empty() {
+                            meta.push(format!("IPv4 {ip}"));
+                        }
+                        if !ipv6.is_empty() {
+                            meta.push(format!("IPv6 {ipv6}"));
+                        }
+                        if !mac.is_empty() {
+                            meta.push(format!("MAC {mac}"));
+                        }
+                        if !meta.is_empty() {
+                            card = card.push(dim(meta.join("  ·  ")));
+                        }
+                        let errs = n(iface, "rx_errors") as u64 + n(iface, "tx_errors") as u64;
+                        let drops = n(iface, "rx_dropped") as u64 + n(iface, "tx_dropped") as u64;
+                        if errs > 0 || drops > 0 {
+                            card = card.push(dim(trf(
+                                "Errors: {0} · Dropped: {1}",
+                                &[errs.to_string(), drops.to_string()]
+                            )));
+                        }
+                        list = list.push(
+                            container(card)
+                                .padding(10)
+                                .width(Length::Fill)
+                                .class(sub_card_style(&self.skin)),
+                        );
+                    }
+                    page = page.push(list);
+                }
+                if !dns.is_empty() {
+                    let servers: Vec<&str> = dns.iter().filter_map(Value::as_str).collect();
+                    page = page.push(
+                        container(
+                            column![
+                                section(tr("DNS servers")),
+                                text::caption(servers.join(", ")),
+                            ]
+                            .spacing(4),
+                        )
+                        .padding(10)
+                        .width(Length::Fill)
+                        .class(sub_card_style(&self.skin)),
+                    );
+                }
+            }
+        }
+
+        page.into()
+    }
+
+    fn connection_row<'a>(&'a self, conn: &'a Value) -> Element<'a, Message> {
+        let id = conn_id(conn);
+        let expanded = !id.is_empty() && self.netmon_expanded == id;
+        let proto = conn_proto(conn).to_uppercase();
+        let state = s(conn, "state");
+        let proc_name = s(conn, "process");
+        let app_label = if proc_name.is_empty() {
+            tr("system").to_string()
+        } else {
+            proc_name.to_string()
+        };
+        let remote = preferred_remote(conn);
+        let rport = conn.get("remote_port").and_then(Value::as_u64).unwrap_or(0);
+        let lport = conn.get("local_port").and_then(Value::as_u64).unwrap_or(0);
+        let service = s(conn, "service");
+        let scope = s(conn, "scope");
+        let endpoint = if state == "LISTEN" {
+            format!(":{lport}")
+        } else if rport > 0 {
+            format!("{remote}:{rport}")
+        } else {
+            remote.to_string()
+        };
+        let rx_r = num(conn, "rx_rate");
+        let tx_r = num(conn, "tx_rate");
+        let total_rate = rx_r.unwrap_or(0.0) + tx_r.unwrap_or(0.0);
+        let rx_b = n(conn, "rx_bytes");
+        let tx_b = n(conn, "tx_bytes");
+
+        let right = if total_rate > 0.0 {
+            format!("↓ {} · ↑ {}", format_rate(rx_r), format_rate(tx_r))
+        } else if rx_b + tx_b > 0.0 {
+            format!("{} / {}", format_bytes(rx_b), format_bytes(tx_b))
+        } else {
+            state.to_string()
+        };
+
+        let dot_tone = match state {
+            "ESTABLISHED" => Tone::Ok,
+            "LISTEN" => Tone::Info,
+            "SYN_SENT" | "SYN_RECV" => Tone::Warn,
+            _ => Tone::Info,
+        };
+        let dot_class = if matches!(state, "ESTABLISHED" | "LISTEN" | "SYN_SENT" | "SYN_RECV") {
+            tone_fill(dot_tone, 4.0)
+        } else {
+            neutral_fill(4.0)
+        };
+        let dot = container(space::horizontal())
+            .width(Length::Fixed(8.0))
+            .height(Length::Fixed(8.0))
+            .class(dot_class);
+
+        let scope_tag = match scope {
+            "external" => "EXT",
+            "lan" => "LAN",
+            _ => "LO",
+        };
+        let mut sub_parts = vec![proto, state.to_string(), scope_tag.to_string()];
+        if !service.is_empty() {
+            sub_parts.push(service.to_string());
+        }
+        if let Some(rtt) = num(conn, "rtt_ms")
+            && rtt > 0.0
+        {
+            sub_parts.push(format!("{rtt:.1} ms"));
+        }
+
+        let top = row![
+            dot,
+            text::heading(app_label).width(Length::Shrink),
+            dim(endpoint.clone()),
+            space::horizontal().width(Length::Fill),
+            if total_rate > 0.0 {
+                accent(right)
+            } else {
+                dim(right)
+            },
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+
+        let header_btn = button::custom(
+            column![top, container(dim(sub_parts.join("  ·  "))).padding([0, 0, 0, 14])].spacing(2),
+        )
+        .padding([5, 8])
+        .width(Length::Fill)
+        .class(theme::Button::MenuItem)
+        .on_press(Message::NetMonToggleConn(id.clone()));
+
+        let mut block = column![header_btn].spacing(4);
+
+        if expanded {
+            let local_ep = format!("{}:{}", s(conn, "local_ip"), lport);
+            let remote_ep = if rport > 0 {
+                format!("{}:{rport}", s(conn, "remote_ip"))
+            } else {
+                s(conn, "remote_ip").to_string()
+            };
+            let mut details = column![
+                dim(format!("{}:  {local_ep}", tr("Local"))),
+                dim(format!("{}:  {remote_ep}", tr("Remote"))),
+            ]
+            .spacing(3);
+            let rhost = s(conn, "remote_host");
+            if !rhost.is_empty() && rhost != s(conn, "remote_ip") {
+                details = details.push(dim(format!("{}:  {rhost}", tr("Host"))));
+            }
+            if let Some(pid) = conn.get("pid").and_then(Value::as_u64)
+                && pid > 0
+            {
+                details = details.push(dim(format!("PID:  {pid}")));
+            }
+            let cmdline = s(conn, "cmdline");
+            if !cmdline.is_empty() {
+                details = details.push(dim(format!("{}:  {cmdline}", tr("Command"))));
+            }
+            if rx_b + tx_b > 0.0 {
+                details = details.push(dim(format!(
+                    "{}:  ↓ {} · ↑ {}",
+                    tr("Traffic"),
+                    format_bytes(rx_b),
+                    format_bytes(tx_b)
+                )));
+            }
+            let copy_val = if state == "LISTEN" {
+                local_ep
+            } else {
+                endpoint
+            };
+            let mut actions = Row::new().spacing(6);
+            if !proc_name.is_empty() {
+                actions = actions.push(link(
+                    "system-search-symbolic",
+                    tr("Filter by this app").into(),
+                    Some(Message::NetMonFilterByApp(proc_name.to_string())),
+                ));
+            }
+            actions = actions.push(link(
+                if self.flashing(&format!("conn:{id}")) {
+                    "object-select-symbolic"
+                } else {
+                    "edit-copy-symbolic"
+                },
+                if self.flashing(&format!("conn:{id}")) {
+                    tr("Copied").into()
+                } else {
+                    tr("Copy endpoint").into()
+                },
+                Some(Message::NetMonCopyConn(copy_val)),
+            ));
+            details = details.push(actions.wrap());
+            block = block.push(container(details).padding([0, 8, 8, 16]));
+        }
+
+        if expanded {
+            container(block)
+                .class(if skin_style(&self.skin).is_some() {
+                    sub_card_style(&self.skin)
+                } else {
+                    selected_row()
+                })
+                .into()
+        } else {
+            block.into()
+        }
+    }
+
+    // ------------------------------------------------------------------ Network & Wi-Fi Setup page
+
+    fn setup_page(&self) -> Element<'_, Message> {
+        let ws = &self.wifi_state;
+        let nm_ok = ws
+            .get("nm_available")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let wifi_dev = ws
+            .get("wifi_device")
+            .and_then(Value::as_bool)
+            .or_else(|| self.stats.get("wifi_device").and_then(Value::as_bool))
+            .unwrap_or(true);
+        let wifi_on = ws
+            .get("wifi_on")
+            .and_then(Value::as_bool)
+            .or_else(|| self.stats.get("wifi_on").and_then(Value::as_bool))
+            .unwrap_or(true);
+        let known = arr(ws, "known");
+        let visible = arr(ws, "visible");
+        let wired = arr(ws, "wired");
+        let wired_devices = arr(ws, "wired_devices");
+        let vpn = arr(ws, "vpn");
+        let dns = arr(ws, "dns");
+        let ws_err = s(ws, "error");
+
+        let mut page = column![].spacing(10);
+
+        if !nm_ok {
+            page = page.push(
+                container(
+                    column![
+                        text::heading(tr("NetworkManager is unavailable")),
+                        dim(tr("Install NetworkManager (nmcli) to configure Wi-Fi and wired networks directly here, or open your desktop's network settings.")),
+                        button::standard(tr("System network settings"))
+                            .leading_icon(icon::from_name("preferences-system-network-symbolic").size(16).handle())
+                            .on_press(Message::OpenWifiSettings),
+                    ]
+                    .spacing(8),
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .class(notice(Tone::Warn)),
+            );
+            return page.into();
+        }
+
+        // Status / action feedback banner
+        if let Some((ok, msg)) = &self.wifi_status {
+            page = page.push(
+                container(
+                    row![
+                        small_icon(
+                            if *ok {
+                                "object-select-symbolic"
+                            } else {
+                                "dialog-warning-symbolic"
+                            },
+                            16
+                        ),
+                        text::caption(msg.clone()).width(Length::Fill),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                )
+                .padding(10)
+                .width(Length::Fill)
+                .class(notice(if *ok { Tone::Ok } else { Tone::Error })),
+            );
+        } else if !ws_err.is_empty() {
+            page = page.push(
+                container(dim(ws_err))
+                    .padding(10)
+                    .width(Length::Fill)
+                    .class(notice(Tone::Warn)),
+            );
+        }
+
+        // Wi-Fi Radio & Controls card
+        let mut ctrl = column![].spacing(8);
+        if wifi_dev {
+            ctrl = ctrl.push(
+                row![
+                    toggler(wifi_on)
+                        .label(tr("Wi-Fi").to_string())
+                        .on_toggle_maybe((!self.wifi_busy).then_some(Message::WifiRadio)),
+                    space::horizontal().width(Length::Fill),
+                    button::standard(if self.wifi_scanning {
+                        tr("Scanning…")
+                    } else {
+                        tr("Rescan Wi-Fi")
+                    })
+                    .leading_icon(icon::from_name("view-refresh-symbolic").size(16).handle())
+                    .on_press_maybe(
+                        (!self.wifi_scanning && !self.wifi_busy && wifi_on)
+                            .then_some(Message::WifiScan(true))
+                    ),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        } else {
+            ctrl = ctrl.push(dim(tr("No Wi-Fi adapter detected.")));
+        }
+
         if self.active() {
-            let trusted = self.trusted();
-            buttons = buttons.push(
-                button::standard(if trusted { tr("Untrust") } else { tr("Trust") })
-                    .leading_icon(
-                        icon::from_name(if trusted {
-                            "security-low-symbolic"
+            let link = self.link();
+            let mut info = vec![format!(
+                "{} · {}",
+                s(link, "ssid"),
+                s(link, "ip")
+            )];
+            if !s(link, "gateway").is_empty() {
+                info.push(format!("{} {}", tr("Router"), s(link, "gateway")));
+            }
+            if !dns.is_empty() {
+                let d: Vec<&str> = dns.iter().filter_map(Value::as_str).collect();
+                info.push(format!("DNS {}", d.join(", ")));
+            }
+            ctrl = ctrl.push(dim(info.join("  ·  ")));
+        }
+
+        page = page.push(
+            container(ctrl)
+                .padding(10)
+                .width(Length::Fill)
+                .class(card_style(&self.skin)),
+        );
+
+        // Inline Wi-Fi Password Form (shown when joining a secured network, changing password,
+        // or automatically when connecting a saved network failed with wrong password!)
+        if self.wifi_form_open {
+            let valid = wifi_password_valid(&self.wifi_password);
+            let mut form = column![
+                row![
+                    small_icon("network-wireless-symbolic", 16),
+                    text::heading(trf("Connect to {0}", &[self.wifi_form_ssid.clone()])),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(8);
+            if !self.wifi_form_note.is_empty() {
+                form = form.push(
+                    text::caption(self.wifi_form_note.clone())
+                        .class(theme::Text::Custom(warn_text)),
+                );
+            }
+            form = form.push(
+                secure_input(
+                    tr("Wi-Fi password (8–63 characters)"),
+                    self.wifi_password.as_str(),
+                    Some(Message::WifiPasswordVisible),
+                    !self.wifi_password_visible,
+                )
+                .id(WIFI_PASSWORD_ID.clone())
+                .on_input(|v| Message::WifiPasswordInput(v.chars().take(64).collect()))
+                .on_submit(|_| Message::WifiSubmitPassword),
+            );
+            form = form.push(
+                row![
+                    button::suggested(if self.wifi_busy {
+                        tr("Connecting…")
+                    } else {
+                        tr("Connect")
+                    })
+                    .on_press_maybe(
+                        (valid && !self.wifi_busy).then_some(Message::WifiSubmitPassword)
+                    ),
+                    button::standard(tr("Cancel")).on_press(Message::WifiCancelPassword),
+                ]
+                .spacing(8),
+            );
+            page = page.push(
+                container(form)
+                    .padding(12)
+                    .width(Length::Fill)
+                    .class(notice(Tone::Info)),
+            );
+        }
+
+        // Saved / Known Wi-Fi Networks
+        if wifi_dev && !known.is_empty() {
+            page = page.push(section(tr("Saved Wi-Fi networks")));
+            let mut list = column![].spacing(4);
+            for k in known {
+                let name = s(k, "name").to_string();
+                let uuid = s(k, "uuid").to_string();
+                let on = b(k, "active");
+                let row_el = row![
+                    small_icon("network-wireless-symbolic", 16),
+                    column![
+                        text::heading(name.clone()),
+                        dim(if on {
+                            tr("Connected").to_string()
                         } else {
-                            "security-high-symbolic"
+                            tr("Saved").to_string()
+                        }),
+                    ]
+                    .spacing(1)
+                    .width(Length::Fill),
+                    if on {
+                        button::standard(tr("Disconnect")).on_press_maybe(
+                            (!self.wifi_busy).then(|| Message::WifiDisconnect(uuid.clone())),
+                        )
+                    } else {
+                        button::suggested(tr("Connect")).on_press_maybe(
+                            (!self.wifi_busy)
+                                .then(|| Message::WifiConnectKnown(uuid.clone(), name.clone())),
+                        )
+                    },
+                    cosmic::widget::tooltip(
+                        icon_button(
+                            "document-edit-symbolic",
+                            (!self.wifi_busy)
+                                .then(|| Message::WifiChangePassword(uuid.clone(), name.clone())),
+                        ),
+                        text::body(tr("Change password")),
+                        cosmic::widget::tooltip::Position::Bottom,
+                    ),
+                    cosmic::widget::tooltip(
+                        icon_button(
+                            "user-trash-symbolic",
+                            (!self.wifi_busy).then(|| Message::WifiForget(uuid)),
+                        ),
+                        text::body(tr("Forget")),
+                        cosmic::widget::tooltip::Position::Bottom,
+                    ),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center);
+                list = list.push(
+                    container(row_el)
+                        .padding([6, 8])
+                        .width(Length::Fill)
+                        .class(sub_card_style(&self.skin)),
+                );
+            }
+            page = page.push(list);
+        }
+
+        // Available / Visible Wi-Fi Networks
+        if wifi_dev && wifi_on {
+            let unseen: Vec<&Value> = visible
+                .iter()
+                .filter(|v| !b(v, "known") && !s(v, "ssid").is_empty())
+                .collect();
+            page = page.push(section(tr("Available networks")));
+            if unseen.len() > 8 || !self.wifi_search.is_empty() {
+                page = page.push(
+                    text_input(tr("Filter Wi-Fi networks…"), self.wifi_search.as_str())
+                        .id(WIFI_SEARCH_ID.clone())
+                        .leading_icon(small_icon("system-search-symbolic", 16))
+                        .on_input(|v| Message::WifiSearch(v.chars().take(40).collect())),
+                );
+            }
+            let q = self.wifi_search.trim().to_lowercase();
+            let filtered_visible: Vec<&Value> = unseen
+                .into_iter()
+                .filter(|v| q.is_empty() || s(v, "ssid").to_lowercase().contains(&q))
+                .collect();
+            if filtered_visible.is_empty() {
+                page = page.push(dim(if self.wifi_scanning {
+                    tr("Scanning for Wi-Fi networks…")
+                } else {
+                    tr("No other Wi-Fi networks found.")
+                }));
+            } else {
+                let mut list = column![].spacing(4);
+                for v in filtered_visible {
+                    let ssid = s(v, "ssid").to_string();
+                    let sec = s(v, "security");
+                    let open = sec.trim().is_empty() || sec == "--";
+                    let enterprise = sec.to_uppercase().contains("802.1X");
+                    let sig = n(v, "signal");
+                    let band = s(v, "band");
+                    let chan = shown(v, "channel");
+                    let mut meta = vec![if open {
+                        tr("Open network").to_string()
+                    } else {
+                        sec.to_string()
+                    }];
+                    if !band.is_empty() {
+                        meta.push(band.to_string());
+                    }
+                    if !chan.is_empty() {
+                        meta.push(trf("ch {0}", &[chan]));
+                    }
+                    meta.push(format!("{} %", sig.round()));
+                    let action_btn = if enterprise {
+                        button::standard(tr("Settings")).on_press(Message::OpenWifiSettings)
+                    } else {
+                        button::standard(tr("Connect")).on_press_maybe(
+                            (!self.wifi_busy).then(|| Message::WifiConnectVisible(ssid.clone(), !open)),
+                        )
+                    };
+                    let row_el = row![
+                        signal_bars(sig),
+                        column![text::heading(ssid), dim(meta.join(" · "))]
+                            .spacing(1)
+                            .width(Length::Fill),
+                        action_btn,
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center);
+                    list = list.push(
+                        container(row_el)
+                            .padding([6, 8])
+                            .width(Length::Fill)
+                            .class(sub_card_style(&self.skin)),
+                    );
+                }
+                page = page.push(list);
+            }
+        }
+
+        // Wired (Ethernet) connections
+        if !wired.is_empty() || !wired_devices.is_empty() {
+            page = page.push(section(tr("Wired")));
+            let all_unplugged = !wired_devices.is_empty()
+                && wired_devices
+                    .iter()
+                    .all(|d| s(d, "state") == "unavailable");
+            if all_unplugged {
+                page = page.push(dim(tr("No cable is plugged in.")));
+            }
+            for c in wired {
+                let uuid = s(c, "uuid").to_string();
+                let on = b(c, "active");
+                page = page.push(
+                    container(
+                        row![
+                            small_icon("network-wired-symbolic", 16),
+                            text::heading(s(c, "name").to_string()).width(Length::Fill),
+                            toggler(on).on_toggle_maybe(
+                                (!self.wifi_busy)
+                                    .then(|| move |v| Message::ConnToggle(uuid.clone(), v))
+                            ),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding([6, 8])
+                    .width(Length::Fill)
+                    .class(sub_card_style(&self.skin)),
+                );
+            }
+        }
+
+        // VPN connections
+        if !vpn.is_empty() {
+            page = page.push(section(tr("VPN")));
+            for c in vpn {
+                let uuid = s(c, "uuid").to_string();
+                let on = b(c, "active");
+                page = page.push(
+                    container(
+                        row![
+                            small_icon("network-vpn-symbolic", 16),
+                            text::heading(s(c, "name").to_string()).width(Length::Fill),
+                            toggler(on).on_toggle_maybe(
+                                (!self.wifi_busy)
+                                    .then(|| move |v| Message::ConnToggle(uuid.clone(), v))
+                            ),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding([6, 8])
+                    .width(Length::Fill)
+                    .class(sub_card_style(&self.skin)),
+                );
+            }
+        }
+
+        page.into()
+    }
+
+    fn footer(&self) -> Element<'_, Message> {
+        let mut buttons = Row::new().spacing(8).align_y(Alignment::Center);
+        match self.page {
+            Page::Devices | Page::Map => {
+                let gateway_url = self
+                    .gateway()
+                    .map(|g| s(g, "web_url"))
+                    .filter(|u| !u.is_empty());
+                buttons = buttons.push(
+                    button::standard(tr("Rescan"))
+                        .leading_icon(icon::from_name("view-refresh-symbolic").size(16).handle())
+                        .on_press_maybe((!self.scanning()).then_some(Message::Rescan)),
+                );
+                if let Some(url) = gateway_url {
+                    buttons = buttons.push(
+                        button::standard(tr("Router"))
+                            .leading_icon(
+                                icon::from_name("network-wireless-symbolic")
+                                    .size(16)
+                                    .handle(),
+                            )
+                            .on_press(Message::OpenWeb(url.to_string())),
+                    );
+                }
+                if self.active() {
+                    let trusted = self.trusted();
+                    buttons = buttons.push(
+                        button::standard(if trusted { tr("Untrust") } else { tr("Trust") })
+                            .leading_icon(
+                                icon::from_name(if trusted {
+                                    "security-low-symbolic"
+                                } else {
+                                    "security-high-symbolic"
+                                })
+                                .size(16)
+                                .handle(),
+                            )
+                            .on_press_maybe(
+                                b(self.link(), "can_trust").then_some(Message::SetTrusted(!trusted)),
+                            ),
+                    );
+                }
+            }
+            Page::Monitor => {
+                buttons = buttons.push(
+                    button::standard(if self.netmon_paused {
+                        tr("Resume")
+                    } else {
+                        tr("Pause")
+                    })
+                    .leading_icon(
+                        icon::from_name(if self.netmon_paused {
+                            "media-playback-start-symbolic"
+                        } else {
+                            "media-playback-pause-symbolic"
                         })
                         .size(16)
                         .handle(),
                     )
-                    .on_press_maybe(
-                        b(self.link(), "can_trust").then_some(Message::SetTrusted(!trusted)),
-                    ),
-            );
+                    .on_press(Message::NetMonTogglePause),
+                );
+                buttons = buttons.push(
+                    button::standard(if self.flashing("netmon_table") {
+                        tr("Copied")
+                    } else {
+                        tr("Copy table")
+                    })
+                    .leading_icon(icon::from_name("edit-copy-symbolic").size(16).handle())
+                    .on_press(Message::NetMonCopyTable),
+                );
+            }
+            Page::Setup => {
+                buttons = buttons.push(
+                    button::standard(tr("System network settings"))
+                        .leading_icon(
+                            icon::from_name("preferences-system-network-symbolic")
+                                .size(16)
+                                .handle(),
+                        )
+                        .on_press(Message::OpenWifiSettings),
+                );
+            }
         }
         buttons = buttons.push(space::horizontal().width(Length::Fill));
-        buttons = buttons.push(icon_button(
-            "preferences-system-symbolic",
-            Some(Message::OpenWifiSettings),
-        ));
         let mut footer = column![buttons].spacing(8);
         // New-device alerts (trusted networks): a switch at the bottom, as in the GNOME menu.
-        if self.active() && self.trusted() {
+        if matches!(self.page, Page::Devices | Page::Map) && self.active() && self.trusted() {
             footer = footer.push(
                 toggler(self.stats.get("alerts").and_then(Value::as_bool) != Some(false))
                     .label(tr("New-device alerts").to_string())
@@ -3203,21 +4394,53 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     fn panel(&self) -> Element<'_, Message> {
         if self.settings_open {
-            return self.settings_page();
+            let body: Element<Message> = if self.window_mode {
+                scrollable(self.settings_page()).height(Length::Fill).into()
+            } else {
+                container(scrollable(self.settings_page()).height(Length::Shrink))
+                    .max_height(POPUP_MAX_HEIGHT - 24.0)
+                    .into()
+            };
+            return body;
         }
-        let mut content = column![self.hero(), self.tabs()].spacing(12);
-        for item in self.notices() {
-            content = content.push(item);
+        let mut scroll_inner = column![].spacing(10);
+        if matches!(self.page, Page::Devices | Page::Map) {
+            for item in self.notices() {
+                scroll_inner = scroll_inner.push(item);
+            }
         }
-        content = content.push(divider::horizontal::default());
-        content = content.push(if self.map_page() {
-            self.map_page_view()
-        } else {
-            self.devices_page()
+        scroll_inner = scroll_inner.push(match self.page {
+            Page::Devices => self.devices_page(),
+            Page::Map => self.map_page_view(),
+            Page::Monitor => self.monitor_page(),
+            Page::Setup => self.setup_page(),
         });
-        content = content.push(divider::horizontal::default());
-        content = content.push(self.footer());
-        content.into()
+        let scroll_body: Element<Message> = if self.window_mode {
+            scrollable(container(scroll_inner).padding([0, 10, 0, 0]))
+                .height(Length::Fill)
+                .into()
+        } else {
+            container(
+                scrollable(container(scroll_inner).padding([0, 10, 0, 0])).height(Length::Shrink),
+            )
+            .max_height(POPUP_MAX_HEIGHT - 240.0)
+            .into()
+        };
+        column![
+            self.hero(),
+            self.tabs(),
+            divider::horizontal::default(),
+            scroll_body,
+            divider::horizontal::default(),
+            self.footer(),
+        ]
+        .spacing(10)
+        .height(if self.window_mode {
+            Length::Fill
+        } else {
+            Length::Shrink
+        })
+        .into()
     }
 
     fn flashing(&self, key: &str) -> bool {
@@ -3294,6 +4517,24 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
         self.fritz_form_net_id.clear();
     }
 
+    fn close_wifi_form(&mut self) {
+        self.wifi_password.clear();
+        self.wifi_password_visible = false;
+        self.wifi_form_open = false;
+        self.wifi_form_ssid.clear();
+        self.wifi_form_uuid.clear();
+        self.wifi_form_note.clear();
+    }
+
+    fn sync_netmon_mode(&self) {
+        let on = self.page == Page::Monitor && !self.netmon_paused && (self.window_mode || self.popup.is_some());
+        self.send_json(json!({
+            "cmd": "netmon",
+            "on": on,
+            "resolve": self.netmon_resolve,
+        }));
+    }
+
     // A resize that has settled (or, on `closing`, any waiting one) goes to the settings; not
     // while maximised, fullscreen or tiled (libcosmic's sharp corners).
     fn save_size(&mut self, closing: bool) {
@@ -3325,6 +4566,7 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
 
     fn popup_closed(&mut self) {
         self.send("closed");
+        self.send_json(json!({"cmd": "netmon", "on": false, "resolve": false}));
         self.chooser = false;
         self.skin_open = false;
         if !self.editing.is_empty() {
@@ -3332,9 +4574,15 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             self.devices_rev.clear();
         }
         self.close_fritz_form();
+        self.close_wifi_form();
     }
 
     fn take_snapshot(&mut self, stats: Value) {
+        if !self.netmon_paused
+            && let Some(nm) = stats.get("netmon").filter(|v| v.is_object())
+        {
+            self.netmon = nm.clone();
+        }
         self.stats = stats;
         // A login form opened for another network is dropped with what was typed.
         if self.fritz_form_open && self.fritz_form_net != self.network_id() {
@@ -3560,28 +4808,43 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 } else {
                     self.popup == Some(id)
                 };
+                let filter_open = if self.settings_open {
+                    false
+                } else {
+                    match self.page {
+                        Page::Monitor => self.netmon_filters.is_filtered(),
+                        Page::Setup => !self.wifi_search.is_empty(),
+                        _ => !self.filter.is_empty(),
+                    }
+                };
                 match esc_step(EscState {
                     shown,
                     note: self.shot.open(),
                     rename: !self.editing.is_empty(),
                     fritz_form: self.fritz_form_open,
+                    wifi_form: self.wifi_form_open,
                     menus: self.language_open
                         || self.corners_open
                         || self.skin_open
                         || self.chooser,
-                    filter: !self.filter.is_empty(),
+                    filter: filter_open,
                     settings: self.settings_open,
                 }) {
                     EscStep::Note => return self.finish_note(false),
                     EscStep::Rename => return self.update(Message::CancelRename),
                     EscStep::FritzForm => self.close_fritz_form(),
+                    EscStep::WifiForm => self.close_wifi_form(),
                     EscStep::Menus => {
                         self.language_open = false;
                         self.corners_open = false;
                         self.skin_open = false;
                         self.chooser = false;
                     }
-                    EscStep::Filter => self.filter.clear(),
+                    EscStep::Filter => match self.page {
+                        Page::Monitor => self.netmon_filters.clear(),
+                        Page::Setup => self.wifi_search.clear(),
+                        _ => self.filter.clear(),
+                    },
                     EscStep::Back => self.settings_open = false,
                     // Like the window's own close (the tray keeps running); the popup like a click on the icon.
                     EscStep::Close if self.window_mode => {
@@ -3657,6 +4920,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 self.send_json(json!({"cmd": "lang", "lang": i18n::language()}));
                 if self.window_mode || self.popup.is_some() {
                     self.send("open");
+                    self.sync_netmon_mode();
+                    if self.page == Page::Setup {
+                        self.wifi_scanning = true;
+                        self.send_json(json!({"cmd": "wifi_scan", "rescan": false}));
+                    }
                 }
             }
             Message::Line(data) => {
@@ -3684,8 +4952,56 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                     self.send_json(json!({"cmd": "lang", "lang": language}));
                     self.last_language = language;
                 }
-                if s(&data, "event") == "scanning" {
+                let ev = s(&data, "event");
+                if ev == "scanning" {
                     self.scan_busy = true;
+                } else if ev == "wifi_state" {
+                    self.wifi_scanning = false;
+                    self.wifi_state = data;
+                } else if ev == "wifi_result" {
+                    self.wifi_busy = false;
+                    let ok = b(&data, "ok");
+                    let auth_failed = b(&data, "auth_failed");
+                    let ssid = s(&data, "ssid").to_string();
+                    let uuid = s(&data, "uuid").to_string();
+                    let msg = s(&data, "message").to_string();
+                    if ok {
+                        self.close_wifi_form();
+                        let shown_msg = if !msg.is_empty() {
+                            msg
+                        } else if !ssid.is_empty() {
+                            trf("Connected to {0}", &[ssid])
+                        } else {
+                            tr("Done").to_string()
+                        };
+                        self.wifi_status = Some((true, shown_msg));
+                    } else if auth_failed && (self.window_mode || self.popup.is_some()) {
+                        // Wrong or missing password on a saved or visible network:
+                        // open the inline password form automatically so the user is never stuck!
+                        self.wifi_form_open = true;
+                        if !ssid.is_empty() {
+                            self.wifi_form_ssid = ssid;
+                        }
+                        if !uuid.is_empty() {
+                            self.wifi_form_uuid = uuid;
+                        }
+                        self.wifi_password.clear();
+                        self.wifi_form_note = tr(
+                            "The password did not work. Enter the correct Wi-Fi password and try again.",
+                        )
+                        .to_string();
+                        self.wifi_status = None;
+                        return Task::batch([restyle, text_input::focus(WIFI_PASSWORD_ID.clone())]);
+                    } else {
+                        self.wifi_status = Some((
+                            false,
+                            if msg.is_empty() {
+                                tr("The network action failed.").to_string()
+                            } else {
+                                msg
+                            },
+                        ));
+                    }
                 } else if data.get("error").is_none() {
                     self.scan_busy = false;
                     self.rescan_pending = false;
@@ -3703,6 +5019,8 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 self.commands = None;
                 self.scan_busy = false;
                 self.rescan_pending = false;
+                self.wifi_busy = false;
+                self.wifi_scanning = false;
             }
             Message::Pulse => self.pulse_dim = !self.pulse_dim,
             Message::WindowTick => {
@@ -3749,6 +5067,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                     return Task::batch([self.shot_popup_closed(), destroy_popup(popup)]);
                 }
                 self.send("open");
+                self.sync_netmon_mode();
+                if self.page == Page::Setup {
+                    self.wifi_scanning = true;
+                    self.send_json(json!({"cmd": "wifi_scan", "rescan": false}));
+                }
                 let focus = if matches!(self.shot, shot::Phase::Note { .. }) {
                     text_input::focus(NOTE_ID.clone())
                 } else {
@@ -3921,6 +5244,8 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             Message::OpenDevice(index) => {
                 // From the map: back to the Devices page, open the device's group, expand and show it.
                 if let Some(dev) = self.devices.get(index).cloned() {
+                    self.page = Page::Devices;
+                    self.sync_netmon_mode();
                     let drop = ["mappage".to_string(), self.group_id_of(&dev)];
                     if b(&dev, "hidden") {
                         self.show_hidden = true;
@@ -3937,8 +5262,9 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
             }
             Message::StartFritzLogin => {
-                if self.map_page() {
-                    self.toggle_group("mappage"); // the form lives on the Devices page
+                if self.page != Page::Devices {
+                    self.page = Page::Devices;
+                    self.sync_netmon_mode();
                 }
                 let net = self.network_id();
                 // A user name typed for another router (form cancelled there) is not offered here.
@@ -3984,6 +5310,156 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::FritzCancel => self.close_fritz_form(),
             Message::FritzHelp => self.fritz_help_open = !self.fritz_help_open,
+            Message::SetPage(page) => {
+                self.page = page;
+                self.chooser = false;
+                self.sync_netmon_mode();
+                if page == Page::Setup {
+                    self.wifi_status = None;
+                    self.wifi_scanning = true;
+                    self.send_json(json!({"cmd": "wifi_scan", "rescan": false}));
+                }
+            }
+            Message::NetMonView(view) => self.netmon_view = view,
+            Message::NetMonSearch(text) => self.netmon_filters.search = text,
+            Message::NetMonProto(proto) => self.netmon_filters.proto = proto,
+            Message::NetMonScope(scope) => self.netmon_filters.scope = scope,
+            Message::NetMonSortNext => self.netmon_filters.sort = self.netmon_filters.sort.next(),
+            Message::NetMonClearFilters => self.netmon_filters.clear(),
+            Message::NetMonTogglePause => {
+                self.netmon_paused = !self.netmon_paused;
+                self.sync_netmon_mode();
+            }
+            Message::NetMonToggleResolve => {
+                self.netmon_resolve = !self.netmon_resolve;
+                self.sync_netmon_mode();
+            }
+            Message::NetMonToggleConn(id) => {
+                self.netmon_expanded = if self.netmon_expanded == id {
+                    String::new()
+                } else {
+                    id
+                };
+            }
+            Message::NetMonFilterByApp(app) => {
+                self.netmon_view = MonitorView::Connections;
+                self.netmon_filters.search = app;
+            }
+            Message::NetMonCopyConn(ep) => {
+                let key = format!("conn:{}", self.netmon_expanded);
+                return self.copy(key, ep);
+            }
+            Message::NetMonCopyTable => {
+                let conns = arr(&self.netmon, "connections");
+                let filtered = filter_connections(conns, &self.netmon_filters);
+                let md = connections_markdown(conns, &filtered);
+                return self.copy("netmon_table".into(), md);
+            }
+            Message::WifiScan(rescan) => {
+                if !self.wifi_scanning {
+                    self.wifi_scanning = true;
+                    self.send_json(json!({"cmd": "wifi_scan", "rescan": rescan}));
+                }
+            }
+            Message::WifiRadio(on) => {
+                if !self.wifi_busy {
+                    self.wifi_busy = true;
+                    self.wifi_status = None;
+                    self.send_json(json!({"cmd": "wifi_radio", "on": on}));
+                }
+            }
+            Message::WifiSearch(text) => self.wifi_search = text,
+            Message::WifiConnectKnown(uuid, ssid) => {
+                if !self.wifi_busy {
+                    self.wifi_busy = true;
+                    self.wifi_status = None;
+                    self.close_wifi_form();
+                    self.send_json(json!({
+                        "cmd": "wifi_connect",
+                        "uuid": uuid,
+                        "ssid": ssid,
+                    }));
+                }
+            }
+            Message::WifiConnectVisible(ssid, secured) => {
+                if self.wifi_busy {
+                    return Task::none();
+                }
+                self.wifi_status = None;
+                if secured {
+                    self.wifi_form_open = true;
+                    self.wifi_form_ssid = ssid;
+                    self.wifi_form_uuid.clear();
+                    self.wifi_form_note.clear();
+                    self.wifi_password.clear();
+                    self.wifi_password_visible = false;
+                    return text_input::focus(WIFI_PASSWORD_ID.clone());
+                }
+                self.wifi_busy = true;
+                self.send_json(json!({
+                    "cmd": "wifi_connect",
+                    "ssid": ssid,
+                }));
+            }
+            Message::WifiChangePassword(uuid, ssid) => {
+                if self.wifi_busy {
+                    return Task::none();
+                }
+                self.wifi_status = None;
+                self.wifi_form_open = true;
+                self.wifi_form_uuid = uuid;
+                self.wifi_form_ssid = ssid;
+                self.wifi_form_note = tr("Enter a new password to update this saved network.").into();
+                self.wifi_password.clear();
+                self.wifi_password_visible = false;
+                return text_input::focus(WIFI_PASSWORD_ID.clone());
+            }
+            Message::WifiPasswordInput(text) => self.wifi_password = text,
+            Message::WifiPasswordVisible => {
+                self.wifi_password_visible = !self.wifi_password_visible;
+            }
+            Message::WifiSubmitPassword => {
+                if self.wifi_busy || !wifi_password_valid(&self.wifi_password) {
+                    return Task::none();
+                }
+                self.wifi_busy = true;
+                self.wifi_status = None;
+                let mut payload = json!({
+                    "cmd": "wifi_connect",
+                    "ssid": self.wifi_form_ssid,
+                    "password": self.wifi_password,
+                });
+                if !self.wifi_form_uuid.is_empty() {
+                    payload["uuid"] = Value::from(self.wifi_form_uuid.clone());
+                }
+                self.wifi_password.clear();
+                self.send_json(payload);
+            }
+            Message::WifiCancelPassword => self.close_wifi_form(),
+            Message::WifiDisconnect(uuid) => {
+                if !self.wifi_busy {
+                    self.wifi_busy = true;
+                    self.wifi_status = None;
+                    self.send_json(json!({"cmd": "wifi_disconnect", "uuid": uuid}));
+                }
+            }
+            Message::WifiForget(uuid) => {
+                if !self.wifi_busy {
+                    self.wifi_busy = true;
+                    self.wifi_status = None;
+                    self.send_json(json!({"cmd": "wifi_forget", "uuid": uuid}));
+                }
+            }
+            Message::ConnToggle(uuid, on) => {
+                if !self.wifi_busy {
+                    self.wifi_busy = true;
+                    self.wifi_status = None;
+                    self.send_json(json!({
+                        "cmd": if on { "conn_up" } else { "conn_down" },
+                        "uuid": uuid,
+                    }));
+                }
+            }
         }
         Task::none()
     }
@@ -4201,6 +5677,7 @@ mod tests {
             note: true,
             rename: true,
             fritz_form: true,
+            wifi_form: true,
             menus: true,
             filter: true,
             settings: true,
@@ -4214,6 +5691,15 @@ mod tests {
                 ..all
             }),
             EscStep::FritzForm
+        );
+        assert_eq!(
+            esc_step(EscState {
+                note: false,
+                rename: false,
+                fritz_form: false,
+                ..all
+            }),
+            EscStep::WifiForm
         );
         let menus = EscState {
             shown: true,
