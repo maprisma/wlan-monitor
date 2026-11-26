@@ -293,6 +293,17 @@ pub fn connections_markdown(connections: &[Value], indices: &[usize]) -> String 
 
 /// Validate a WPA/WPA2/WPA3 PSK passphrase (8..63 UTF-8 bytes or 64 hex chars, no newlines,
 /// no leading/trailing spaces).
+/// 1-32 UTF-8 bytes, no leading "-", no control or BiDi format characters (as the collector checks).
+pub fn ssid_sendable(ssid: &str) -> bool {
+    !ssid.trim().is_empty()
+        && !ssid.starts_with('-')
+        && ssid.len() <= 32
+        && !ssid.chars().any(|c| {
+            c.is_control()
+                || matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+}
+
 pub fn wifi_password_valid(password: &str) -> bool {
     if password.contains('\n') || password.contains('\r') || password.trim() != password {
         return false;
@@ -399,5 +410,20 @@ mod tests {
         assert!(!wifi_password_valid(&"g".repeat(64)));
         assert!(wifi_password_valid(&"a".repeat(64)));
         assert!(wifi_password_valid(&"a".repeat(63)));
+    }
+}
+
+#[cfg(test)]
+mod ssid_tests {
+    use super::ssid_sendable;
+
+    #[test]
+    fn ssid_sendable_matches_collector_rules() {
+        assert!(ssid_sendable("Home <5G> & Co"));
+        assert!(!ssid_sendable("-dash"));
+        assert!(!ssid_sendable("evil\u{202e}name"));
+        assert!(!ssid_sendable("a\u{7}b"));
+        assert!(!ssid_sendable(&"é".repeat(17)));
+        assert!(!ssid_sendable("   "));
     }
 }

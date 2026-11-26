@@ -3,7 +3,7 @@ use maprisma_kit::{AppInfo, corners, look, shot, window_size};
 use maprisma_wlan_monitor::i18n::{self, read_pref, tr, trf, write_pref};
 use maprisma_wlan_monitor::netmon::{
     MonitorSort, MonitorView, NetMonFilters, ProtoFilter, ScopeFilter, conn_id, conn_proto,
-    connections_markdown, filter_connections, preferred_remote, wifi_password_valid,
+    connections_markdown, filter_connections, preferred_remote, ssid_sendable, wifi_password_valid,
 };
 use maprisma_wlan_monitor::skin::{
     SKIN_KEY, SKINS, active_theme, normalize_skin, skin_label, skin_style,
@@ -99,10 +99,13 @@ async fn close_running_window(bus: &str) {
 fn main() -> cosmic::iced::Result {
     if std::env::args().any(|arg| arg == "--mcp") {
         if let Some(script) = maprisma_wlan_monitor::mcp_script_path() {
-            let status = std::process::Command::new("python3")
-                .arg("-I")
-                .arg(&script)
-                .status();
+            // Read-only unless the user passes --allow-changes as well (see README).
+            let mut cmd = std::process::Command::new("python3");
+            cmd.arg("-I").arg(&script);
+            if std::env::args().any(|arg| arg == "--allow-changes") {
+                cmd.arg("--allow-changes");
+            }
+            let status = cmd.status();
             std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
         }
         eprintln!("MCP server script (wlan-mcp.py) not found.");
@@ -1072,6 +1075,8 @@ struct Monitor<const WINDOW_MODE: bool = false> {
     fritz_user_net: String,
     fritz_password: String,
     fritz_password_visible: bool,
+    /// The last FRITZ!Box login was not sent (the network changed while the form was open).
+    fritz_dropped: bool,
     fritz_help_open: bool,
     flash: HashMap<String, std::time::Instant>,
     // Network Monitor page state
@@ -2426,6 +2431,12 @@ impl<const WINDOW_MODE: bool> Monitor<WINDOW_MODE> {
             } else {
                 dim(message)
             });
+        }
+        if self.fritz_dropped && !self.fritz_form_open && state != "connected" {
+            block = block.push(
+                text::caption(tr("The network changed before the login was sent. Connect again."))
+                    .class(theme::Text::Custom(warn_text)),
+            );
         }
         if self.fritz_form_open {
             // The password goes to the collector over its stdin pipe and is never shown again.
@@ -5273,6 +5284,7 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 }
                 self.fritz_user_net = net.clone();
                 self.fritz_form_open = true;
+                self.fritz_dropped = false;
                 self.fritz_form_net = net;
                 self.fritz_form_net_id = shown(self.link(), "net_id");
                 self.fritz_password_visible = false;
@@ -5294,11 +5306,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
                 return cosmic::widget::text_input::focus(FRITZ_PASSWORD_ID.clone());
             }
             Message::FritzConnect => {
-                // Typed for another router: the network changed while the form was open.
-                if !self.fritz_password.is_empty()
-                    && !self.fritz_form_net_id.is_empty()
-                    && self.fritz_form_net == self.network_id()
-                {
+                // Typed for another router: the network changed while the form was open. Said, not
+                // dropped silently.
+                let same_net = !self.fritz_form_net_id.is_empty() && self.fritz_form_net == self.network_id();
+                self.fritz_dropped = !self.fritz_password.is_empty() && !same_net;
+                if !self.fritz_password.is_empty() && same_net {
                     self.send_json(json!({
                         "cmd": "fritz_login",
                         "user": self.fritz_user.trim(),
@@ -5383,6 +5395,11 @@ impl<const WINDOW_MODE: bool> cosmic::Application for Monitor<WINDOW_MODE> {
             }
             Message::WifiConnectVisible(ssid, secured) => {
                 if self.wifi_busy {
+                    return Task::none();
+                }
+                // The collector refuses SSIDs nmcli could misread; say so now instead of waiting.
+                if !ssid_sendable(&ssid) {
+                    self.wifi_status = Some((false, tr("The network action failed.").to_string()));
                     return Task::none();
                 }
                 self.wifi_status = None;

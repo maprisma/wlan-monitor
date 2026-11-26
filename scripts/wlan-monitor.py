@@ -47,6 +47,7 @@ import re
 import secrets
 import select
 import shutil
+import signal
 import socket
 import ssl
 import stat
@@ -119,7 +120,7 @@ JSON_COMMANDS = {
     "netmon", "wifi_scan", "wifi_radio", "wifi_connect", "wifi_disconnect", "wifi_forget",
     "conn_up", "conn_down",
 }
-WIFI_UUID_RE = re.compile(r"^[0-9a-fA-F-]{8,64}$")
+WIFI_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 WIFI_STATUS_TTL = 10.0
 # Interface languages the panel offers; the language arrives from the bar widget ("lang" command).
 LANGS = ("en", "de", "fr", "es", "it", "pt", "nl", "pl")
@@ -1414,16 +1415,19 @@ def parse_command(line):
         ssid = data.get("ssid", "")
         uuid = data.get("uuid")
         password = data.get("password")
-        if not isinstance(ssid, str) or len(ssid.encode("utf-8")) > 32 or "\n" in ssid or "\r" in ssid:
-            return ""
-        if ssid and (ssid.startswith("-") or not ssid.isprintable()):
-            return ""
         if uuid is not None:
             if not isinstance(uuid, str):
                 return ""
             uuid = uuid.strip()
             if uuid and not WIFI_UUID_RE.match(uuid):
                 return ""
+        if not isinstance(ssid, str):
+            return ""
+        if uuid:
+            # With a saved profile's uuid the SSID is only a label (nmcli gets the uuid alone).
+            ssid = "".join(ch for ch in ssid if ch.isprintable())[:32]
+        elif len(ssid.encode("utf-8")) > 32 or (ssid and (ssid.startswith("-") or not ssid.isprintable())):
+            return ""
         if password is not None:
             if not isinstance(password, str) or len(password.encode("utf-8")) > 128 or "\n" in password or "\r" in password:
                 return ""
@@ -2754,7 +2758,13 @@ def read_fritz_state(ip, mac, iface, now_wall=None):
 
 
 class Monitor:
-    def __init__(self):
+    def __init__(self, can_lead=True, passive=False):
+        # can_lead=False (the MCP server): never the FRITZ!Box collector, so it never takes the
+        # leader lock, never reads the saved login and never opens the request socket.
+        self.can_lead = can_lead
+        # passive=True (the MCP server): no automatic sweeps (only an explicit force_scan), and
+        # saved names/flags are shown without writing devices.json or announcing new devices.
+        self.passive = passive
         self.lang = "en"  # set by the bar widget ("lang" command); used for notifications
         self.trusted = load_trusted()
         self.untrusted_here = set()  # untrusted here while the shared list could not be saved
@@ -2786,6 +2796,7 @@ class Monitor:
         self._wifi_worker_lock = threading.Lock()
         self._wifi_scan_lock = threading.Lock()
         self._wifi_scan_running = False
+        self._wifi_busy = False  # one network change at a time; more are refused, never queued
         self._emit_fn = emit
         self.reset_network(None)
 
@@ -2793,6 +2804,8 @@ class Monitor:
     def lead(self):
         """True when this collector is (or just became) the FRITZ!Box collector: the first to
         take the leader lock, kept until it ends; then it alone reads and writes the login."""
+        if not self.can_lead:
+            return False
         if self.fritz is not None:
             if self.request_sock is None:
                 self.open_requests()
@@ -3004,6 +3017,13 @@ class Monitor:
         self.iw_time = -math.inf
         self.traffic_prev = None
 
+    def collect_netmon(self):
+        """The Network Monitor's part of a snapshot; its failure never drops the device list."""
+        try:
+            return self.net_monitor.collect(resolve=self.netmon_resolve)
+        except Exception:
+            return {"ok": False, "error": "The Network Monitor could not read the connections."}
+
     def _wifi_radio_status(self, force=False):
         """Fast cached NetworkManager / Wi-Fi device / radio status for every snapshot."""
         now = time.monotonic()
@@ -3093,10 +3113,21 @@ class Monitor:
                     time.monotonic(),
                 )
                 emit_fn(dict(state, event="wifi_state"))
+        except Exception:
+            # Never a traceback (it could carry the password) and never a Setup page left busy.
+            if cmd != "wifi_scan":
+                try:
+                    emit_fn({"event": "wifi_result", "ok": False, "action": cmd,
+                             "message": "The network change failed."})
+                except Exception:
+                    pass
         finally:
             if cmd == "wifi_scan":
                 with self._wifi_scan_lock:
                     self._wifi_scan_running = False
+            else:
+                with self._wifi_scan_lock:
+                    self._wifi_busy = False
 
     def _spawn_wifi_command(self, command):
         if command["cmd"] == "wifi_scan":
@@ -3104,8 +3135,33 @@ class Monitor:
                 if self._wifi_scan_running:
                     return None
                 self._wifi_scan_running = True
+        else:
+            with self._wifi_scan_lock:
+                busy, self._wifi_busy = self._wifi_busy, True
+            if busy:
+                # A change still running: this one is refused now instead of running late.
+                try:
+                    (self._emit_fn or emit)({"event": "wifi_result", "ok": False, "action": command["cmd"],
+                                             "message": "Another network change is still running."})
+                except Exception:
+                    pass
+                return None
         t = threading.Thread(target=self._run_wifi_command, args=(command,), daemon=True)
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            with self._wifi_scan_lock:
+                if command["cmd"] == "wifi_scan":
+                    self._wifi_scan_running = False
+                else:
+                    self._wifi_busy = False
+            if command["cmd"] != "wifi_scan":
+                try:
+                    (self._emit_fn or emit)({"event": "wifi_result", "ok": False, "action": command["cmd"],
+                                             "message": "The network change failed."})
+                except Exception:
+                    pass
+            return None
         return t
 
     # -- commands from the bar widget --
@@ -3266,11 +3322,12 @@ class Monitor:
         """Overlay saved names / pins / hidden flags; on trusted networks remember MACs and flag new ones."""
         key = network_key(self.trust_identity)
         tracking = bool(trusted and key)
+        record = tracking and not self.passive  # a passive reader only overlays what is saved
         now_wall = time.time()
         changed = False
         self.reload_store()
-        net = store_network(self.store, key, create=tracking) if key else None
-        if tracking and net["since"] is None:
+        net = store_network(self.store, key, create=record) if key else None
+        if record and net["since"] is None:
             net["since"] = now_wall
             changed = True
         added = {}  # mac -> record first seen in this scan (merged into the shared file below)
@@ -3278,7 +3335,7 @@ class Monitor:
         for dev in devices:
             mac = dev["mac"] if MAC_RE.match(dev.get("mac") or "") else ""
             rec = net["devices"].get(mac) if net and mac else None
-            if tracking and mac and rec is None and not dev["is_self"]:
+            if record and mac and rec is None and not dev["is_self"]:
                 rec = store_device(net, mac, now_wall)
                 if now_wall - net["since"] > BASELINE_SECONDS:
                     rec["new"] = True
@@ -3392,7 +3449,7 @@ class Monitor:
                 "wifi_on": wstatus["wifi_on"],
             }
             if self.netmon_enabled and self.net_monitor is not None:
-                snap["netmon"] = self.net_monitor.collect(resolve=self.netmon_resolve)
+                snap["netmon"] = self.collect_netmon()
             return snap
 
         iface = net["iface"]
@@ -3462,6 +3519,8 @@ class Monitor:
         do_known = not do_full and trusted and self.known and now - self.last_known_scan >= KNOWN_SCAN_EVERY
         if lan_blocked:  # probes would only be dropped by the VPN firewall
             do_full = do_known = False
+        if self.passive:  # the MCP server: only an explicit wlan_rescan probes the network
+            do_full, do_known = force_scan, False
 
         mdns_every = MDNS_EVERY_OPEN if self.panel_open else MDNS_EVERY_CLOSED
         if do_full or now - self.mdns_time >= mdns_every:
@@ -3732,7 +3791,7 @@ class Monitor:
             "wifi_on": wstatus["wifi_on"],
         }
         if self.netmon_enabled and self.net_monitor is not None:
-            snap["netmon"] = self.net_monitor.collect(resolve=self.netmon_resolve)
+            snap["netmon"] = self.collect_netmon()
         return snap
 
 
@@ -3755,6 +3814,22 @@ def handle_line(monitor, line):
 
 def main():
     monitor = Monitor()
+
+    def on_term(_signum, _frame):
+        # A widget reload or shell restart: end nmcli children, remove passwd-files in flight,
+        # give up the FRITZ!Box role and its socket, then exit.
+        try:
+            if wifi_setup_mod is not None:
+                wifi_setup_mod.cleanup_active()
+            monitor.close()
+        finally:
+            os._exit(0)
+    signal.signal(signal.SIGTERM, on_term)
+    if wifi_setup_mod is not None:
+        try:
+            wifi_setup_mod.sweep_stale_secrets()
+        except Exception:
+            pass
     if "--once" in sys.argv:
         net = detect_interface(monitor.iface_cache)
         if net:
@@ -3769,43 +3844,49 @@ def main():
     monitor.lead()
 
     stdin_fd = sys.stdin.fileno() if sys.stdin else None
-    pending = b""
-    next_tick = 0.0
-    while True:
-        run_now = False
-        timeout = max(0.0, next_tick - time.monotonic())
-        if stdin_fd is not None:
-            try:
-                ready, _, _ = select.select([stdin_fd], [], [], timeout)
-            except (OSError, ValueError):
-                ready = [stdin_fd]
-            if ready:
+    try:
+        pending = b""
+        next_tick = 0.0
+        while True:
+            run_now = False
+            timeout = max(0.0, next_tick - time.monotonic())
+            if stdin_fd is not None:
                 try:
-                    data = os.read(stdin_fd, 1024)
+                    ready, _, _ = select.select([stdin_fd], [], [], timeout)
                 except (OSError, ValueError):
-                    data = b""
-                if not data:  # EOF: keep running, stop listening
-                    stdin_fd = None
-                else:
-                    pending = (pending + data)[-4096:]
-                    *lines, pending = pending.split(b"\n")
-                    for line in lines:
-                        run_now = handle_line(monitor, line.decode("utf-8", "replace")) or run_now
-            if not run_now and time.monotonic() < next_tick:
-                continue
-        elif timeout:
-            time.sleep(timeout)
+                    ready = [stdin_fd]
+                if ready:
+                    try:
+                        data = os.read(stdin_fd, 1024)
+                    except (OSError, ValueError):
+                        data = b""
+                    if not data:  # EOF: keep running, stop listening
+                        stdin_fd = None
+                    else:
+                        pending = (pending + data)[-4096:]
+                        *lines, pending = pending.split(b"\n")
+                        for line in lines:
+                            run_now = handle_line(monitor, line.decode("utf-8", "replace")) or run_now
+                if not run_now and time.monotonic() < next_tick:
+                    continue
+            elif timeout:
+                time.sleep(timeout)
 
-        try:
-            emit(monitor.snapshot(emit=emit))
-        except BrokenPipeError:
-            return 0
-        except Exception as exc:
             try:
-                emit({"error": clean(str(exc), 200)})
+                emit(monitor.snapshot(emit=emit))
             except BrokenPipeError:
                 return 0
-        next_tick = time.monotonic() + (INTERVAL_OPEN if monitor.panel_open else INTERVAL_CLOSED)
+            except Exception as exc:
+                try:
+                    emit({"error": clean(str(exc), 200)})
+                except BrokenPipeError:
+                    return 0
+            next_tick = time.monotonic() + (INTERVAL_OPEN if monitor.panel_open else INTERVAL_CLOSED)
+    finally:
+        # Also when stdout closes without a SIGTERM: no passwd-file or nmcli child outlives us.
+        if wifi_setup_mod is not None:
+            wifi_setup_mod.cleanup_active()
+        monitor.close()
 
 
 if __name__ == "__main__":

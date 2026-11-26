@@ -28,8 +28,13 @@ English only.
     re-prompting on wrong password, plus wired Ethernet and VPN toggles.
   - **Local MCP Server (`--mcp` / `maprisma-wlan-mcp`):** zero-dependency stdio JSON-RPC 2.0
     [Model Context Protocol](https://modelcontextprotocol.io) server exposing WLAN status, discovered devices,
-    live Network Monitor connections & interfaces, and safe Wi-Fi/network actions to AI agents. FRITZ!Box
-    credentials and Wi-Fi passwords are never exposed.
+    live Network Monitor connections & interfaces and the Wi-Fi list to AI agents. **Read-only by default**;
+    with `--allow-changes` (`maprisma-wlan-monitor --mcp --allow-changes` or `maprisma-wlan-mcp --allow-changes`)
+    it also offers changes (device names/flags, trust, alerts, Wi-Fi radio, connect, Wi-Fi-only disconnect,
+    forget with the matching SSID) and the active `wlan_rescan`, each only with `"confirm": true`. Its collector
+    is passive: it never sweeps the subnet on its own and never writes saved device data or announces new devices. It is never
+    the FRITZ!Box collector, so the saved FRITZ!Box login is never read by it; FRITZ!Box credentials and Wi-Fi
+    passwords are never exposed.
   - **New-device alerts** on trusted networks (a desktop notification from the collector and a NEW badge),
     **All known**, the **New-device alerts** switch.
   - **Rescan**, **Router** (its web page), **Trust / Untrust**, and direct link to system network settings.
